@@ -28,7 +28,15 @@ export function sanitizeNetworkConfig(config: any): any {
       // WiFi SSID profiles contain passwords in "key" field
       const profiles: any = {};
       for (const [pid, profile] of Object.entries(v as Record<string, any>)) {
-        profiles[pid] = sanitizeNetworkConfig(profile);
+        const sanitizedProfile = sanitizeNetworkConfig(profile);
+        if (
+          sanitizedProfile &&
+          typeof sanitizedProfile === "object" &&
+          typeof sanitizedProfile.key === "string"
+        ) {
+          sanitizedProfile.key = "[REDACTED]";
+        }
+        profiles[pid] = sanitizedProfile;
       }
       result[k] = profiles;
     } else if (k === "extra" && typeof v === "object" && v !== null && (v as any).peers) {
