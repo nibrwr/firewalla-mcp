@@ -35,6 +35,8 @@ export class FirewallaClient {
   private hostService: HostService | null = null;
   private networkService: NetworkService | null = null;
   private initService: InitService | null = null;
+  private messageKey: string | null = null;
+  private rkeyTimestamp: number | null = null;
 
   constructor(
     private ip: string,
@@ -48,11 +50,72 @@ export class FirewallaClient {
     if (!groups || groups.length === 0) {
       throw new Error("No Firewalla groups found. Check your keypair and pairing.");
     }
-    this.fwGroup = FWGroup.fromJson(groups[0], this.ip);
+    const groupJson = groups[0];
+    this.fwGroup = FWGroup.fromJson(groupJson, this.ip);
+    this.configureMessageKey(groupJson);
+    (FWGroupApi as any).sendMessageToBox = (fwGroup: FWGroup, fwMessage: FWMessage) =>
+      this.sendMessageToBox(fwGroup, fwMessage);
     this.alarmService = new AlarmService(this.fwGroup);
     this.hostService = new HostService(this.fwGroup);
     this.networkService = new NetworkService(this.fwGroup);
     this.initService = new InitService(this.fwGroup);
+  }
+
+  private configureMessageKey(groupJson: any) {
+    const symmetricKey = groupJson?.symmetricKeys?.find(
+      (key: any) => key.eid === this.fwGroup?.eid,
+    ) ?? groupJson?.symmetricKeys?.[0];
+
+    if (!symmetricKey?.rkey) {
+      this.messageKey = this.fwGroup?.getSymmetricKey() ?? null;
+      this.rkeyTimestamp = null;
+      return;
+    }
+
+    const rotatedKey = JSON.parse(symmetricKey.rkey);
+    this.messageKey = SecureUtil.rsaDecrypt(rotatedKey.key);
+    this.rkeyTimestamp = rotatedKey.ts ?? null;
+  }
+
+  private async sendMessageToBox(fwGroup: FWGroup, fwMessage: FWMessage) {
+    const encryptionKey = this.messageKey ?? fwGroup.getSymmetricKey();
+    const messageString = JSON.stringify(fwMessage.toJSON(fwGroup.eid));
+    const body: Record<string, any> = {
+      timestamp: Math.floor(Date.now() / 1000),
+      message: SecureUtil.aesEncrypt(messageString, encryptionKey),
+    };
+
+    if (this.rkeyTimestamp) {
+      body.rkeyts = this.rkeyTimestamp;
+    }
+
+    const networker = (FWGroupApi as any).getApiNetworker();
+    const authToken = networker?.authToken;
+    const response = await fetch(fwGroup.getMessageUrl(), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    const payload = await response.json();
+
+    if (!response.ok) {
+      throw new Error(`Firewalla API ${response.status}: ${JSON.stringify(payload)}`);
+    }
+    if (payload.error) {
+      throw new Error(`Firewalla API error: ${JSON.stringify(payload.error)}`);
+    }
+    if (!payload.message) {
+      throw new Error(`Firewalla API response missing encrypted message: ${JSON.stringify(payload)}`);
+    }
+
+    const decrypted = JSON.parse(SecureUtil.aesDecrypt(payload.message, encryptionKey));
+    if (decrypted.code !== 200) {
+      throw decrypted;
+    }
+    return decrypted.data;
   }
 
   private ensureConnected() {

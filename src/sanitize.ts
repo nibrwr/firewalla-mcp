@@ -9,6 +9,7 @@ const sensitiveKeys = new Set([
   "token",
   "credential",
   "apiKey",
+  "key",
   "passphrase",
   "preSharedKey",
 ]);
