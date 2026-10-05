@@ -1,3 +1,4 @@
+import { READ_ONLY_TOOL_ANNOTATIONS } from "./annotations.js";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { FirewallaClient, FlowFilter } from "../firewalla-client.js";
@@ -17,6 +18,7 @@ export function registerFlowTools(server: McpServer, client: FirewallaClient) {
     {
       mac: z.string().describe("MAC address of the device (e.g. AA:BB:CC:DD:EE:FF)"),
     },
+    READ_ONLY_TOOL_ANNOTATIONS,
     async ({ mac }) => {
       try {
         const initData = await client.getInit();
@@ -57,7 +59,7 @@ export function registerFlowTools(server: McpServer, client: FirewallaClient) {
           ],
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = "Read-only Firewalla operation failed";
         return {
           content: [
             {
@@ -83,6 +85,7 @@ export function registerFlowTools(server: McpServer, client: FirewallaClient) {
       count: z.number().optional().describe("Max results to return (default 100, max 5000)"),
       hoursBack: z.number().optional().describe("How many hours back to search (default 24)"),
     },
+    READ_ONLY_TOOL_ANNOTATIONS,
     async ({ mac, domain, ip, port, category, count, hoursBack }) => {
       try {
         const now = Math.floor(Date.now() / 1000);
@@ -110,7 +113,7 @@ export function registerFlowTools(server: McpServer, client: FirewallaClient) {
           ],
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = "Read-only Firewalla operation failed";
         return {
           content: [
             {
@@ -134,6 +137,7 @@ export function registerFlowTools(server: McpServer, client: FirewallaClient) {
       count: z.number().optional().describe("Max results to return (default 100, max 5000)"),
       hoursBack: z.number().optional().describe("How many hours back to search (default 24)"),
     },
+    READ_ONLY_TOOL_ANNOTATIONS,
     async ({ mac, domain, ip, count, hoursBack }) => {
       try {
         const now = Math.floor(Date.now() / 1000);
@@ -159,7 +163,7 @@ export function registerFlowTools(server: McpServer, client: FirewallaClient) {
           ],
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = "Read-only Firewalla operation failed";
         return {
           content: [
             {

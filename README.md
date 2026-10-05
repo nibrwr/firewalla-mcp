@@ -7,7 +7,7 @@ Built for AI-powered network security monitoring. Connect it to Claude Code, Cla
 ## Features
 
 - **Read-only by design** — cannot modify rules, dismiss alarms, or change any settings
-- **100% local** — talks directly to your Firewalla box on your LAN (port 8833), no cloud dependency
+- **Cloud login, local box reads** — paired-key authentication uses Firewalla cloud login; encrypted box requests use LAN port 8833
 - **Free** — uses the local API, no MSP subscription needed
 - **MCP standard** — works with any MCP client (Claude Code, Claude Desktop, etc.)
 
@@ -110,7 +110,7 @@ The tool will prompt you for:
 
 1. **Email** — just a label (e.g., `you@example.com`), used for display in the Firewalla app
 2. **QR code JSON** — paste the JSON string from step 3
-3. **Firewalla IP** — your box's IP address (e.g., `10.0.1.1` — this is usually your default gateway)
+3. **Firewalla IP** — your box's IP address (confirm the actual box address; do not infer it from a default gateway)
 4. **Create new keypair?** — choose **Yes**
 
 This generates `etp.public.pem` and `etp.private.pem` in the current directory.
@@ -153,6 +153,7 @@ Add the server to your global config (`~/.claude.json`) under `mcpServers`:
       "args": ["/path/to/firewalla-mcp/dist/index.js"],
       "env": {
         "FIREWALLA_IP": "10.0.1.1",
+        "FIREWALLA_GROUP_ID": "confirmed-paired-group-id",
         "FIREWALLA_PUBLIC_KEY_PATH": "/Users/yourname/.firewalla/etp.public.pem",
         "FIREWALLA_PRIVATE_KEY_PATH": "/Users/yourname/.firewalla/etp.private.pem"
       }
@@ -175,6 +176,7 @@ Add to your `claude_desktop_config.json`:
       "args": ["/path/to/firewalla-mcp/dist/index.js"],
       "env": {
         "FIREWALLA_IP": "10.0.1.1",
+        "FIREWALLA_GROUP_ID": "confirmed-paired-group-id",
         "FIREWALLA_PUBLIC_KEY_PATH": "/Users/yourname/.firewalla/etp.public.pem",
         "FIREWALLA_PRIVATE_KEY_PATH": "/Users/yourname/.firewalla/etp.private.pem"
       }
@@ -186,6 +188,7 @@ Add to your `claude_desktop_config.json`:
 ### With MCP Inspector (debugging)
 
 ```bash
+FIREWALLA_GROUP_ID=confirmed-paired-group-id \
 FIREWALLA_IP=10.0.1.1 \
 FIREWALLA_PUBLIC_KEY_PATH=~/.firewalla/etp.public.pem \
 FIREWALLA_PRIVATE_KEY_PATH=~/.firewalla/etp.private.pem \
@@ -198,7 +201,8 @@ npx @modelcontextprotocol/inspector node dist/index.js
 |----------|----------|---------|-------------|
 | `FIREWALLA_PUBLIC_KEY_PATH` | Yes | — | Path to `etp.public.pem` |
 | `FIREWALLA_PRIVATE_KEY_PATH` | Yes | — | Path to `etp.private.pem` |
-| `FIREWALLA_IP` | No | `10.0.1.1` | Your Firewalla's IP address |
+| `FIREWALLA_IP` | Yes | None | Confirmed Firewalla box address |
+| `FIREWALLA_GROUP_ID` | Yes | None | Exact paired group `_id` |
 
 ## Example Queries
 
@@ -249,7 +253,7 @@ firewalla-mcp/
 ## Security
 
 - **Read-only only** — this server cannot modify your Firewalla configuration
-- **Local network only** — communicates directly with your Firewalla box, no cloud relay
+- **Paired cloud login** — authentication requires Firewalla cloud access before local encrypted reads
 - **Key-based auth** — uses the same ETP token mechanism as the Firewalla mobile app
 - **Sensitive data redacted** — WiFi passwords, WireGuard private keys, tokens, credentials, API keys, passphrases, and pre-shared keys are automatically stripped from output
 - **Input limits** — all `count` parameters are clamped to a max of 5000 to prevent excessive data retrieval
@@ -264,3 +268,24 @@ firewalla-mcp/
 ## License
 
 MIT — see [LICENSE](LICENSE)
+
+## M6 setup admission
+
+The setup revision requires an explicit `FIREWALLA_IP` and `FIREWALLA_GROUP_ID`,
+plus existing paired `FIREWALLA_PUBLIC_KEY_PATH` and `FIREWALLA_PRIVATE_KEY_PATH`.
+It never infers the box from a default gateway or the existing M4 MCP endpoint.
+The selected group must match the login response `_id`; a missing selection
+fails instead of choosing the first paired box.
+
+`node-firewalla` performs HTTPS login at `firewalla.encipher.io` using the paired
+public key, then uses authenticated encrypted box requests on port 8833.
+Pairing keys can confer broader box authority than the MCP read-only surface.
+This implementation exposes exactly nineteen annotated reads and rejects every
+other tool name at the protocol transport boundary before SDK dispatch. Provider
+exception details are suppressed. No pairing, writes, key creation or live
+network access is part of source validation.
+
+Run `npm test` for the TypeScript build and synthetic SDK protocol/group-selection
+tests. The tests replace cloud login/key import and never contact a real box.
+Development dependencies were installed in the temporary M6 worktree only,
+with explicit user approval and lifecycle scripts disabled.

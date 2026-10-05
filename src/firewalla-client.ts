@@ -42,6 +42,7 @@ export class FirewallaClient {
     private ip: string,
     private publicKeyPath: string,
     private privateKeyPath: string,
+    private groupId: string,
   ) {}
 
   async connect(): Promise<void> {
@@ -50,7 +51,8 @@ export class FirewallaClient {
     if (!groups || groups.length === 0) {
       throw new Error("No Firewalla groups found. Check your keypair and pairing.");
     }
-    const groupJson = groups[0];
+    const groupJson = groups.find((group: any) => group._id === this.groupId);
+    if (!groupJson) throw new Error("Selected paired group unavailable");
     this.fwGroup = FWGroup.fromJson(groupJson, this.ip);
     this.configureMessageKey(groupJson);
     (FWGroupApi as any).sendMessageToBox = (fwGroup: FWGroup, fwMessage: FWMessage) =>

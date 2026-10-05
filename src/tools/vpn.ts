@@ -1,3 +1,4 @@
+import { READ_ONLY_TOOL_ANNOTATIONS } from "./annotations.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { FirewallaClient } from "../firewalla-client.js";
 import { sanitizeNetworkConfig } from "../sanitize.js";
@@ -6,6 +7,7 @@ export function registerVpnTools(server: McpServer, client: FirewallaClient) {
   server.tool(
     "get_vpn_status",
     "Get VPN status including WireGuard, OpenVPN, and VPN mesh connections. Shows configured VPN profiles, connected clients, and connection health.",
+    READ_ONLY_TOOL_ANNOTATIONS,
     async () => {
       try {
         const init: any = await client.getInit();
@@ -73,7 +75,7 @@ export function registerVpnTools(server: McpServer, client: FirewallaClient) {
           ],
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = "Read-only Firewalla operation failed";
         return {
           content: [{ type: "text" as const, text: `Error fetching VPN status: ${message}` }],
           isError: true,

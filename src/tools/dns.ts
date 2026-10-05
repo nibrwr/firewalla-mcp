@@ -1,3 +1,4 @@
+import { READ_ONLY_TOOL_ANNOTATIONS } from "./annotations.js";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { FirewallaClient, FlowFilter } from "../firewalla-client.js";
@@ -12,6 +13,7 @@ export function registerDnsTools(server: McpServer, client: FirewallaClient) {
       count: z.number().optional().describe("Max results to return (default 100, max 5000)"),
       hoursBack: z.number().optional().describe("How many hours back to search (default 24)"),
     },
+    READ_ONLY_TOOL_ANNOTATIONS,
     async ({ mac, domain, count, hoursBack }) => {
       try {
         const now = Math.floor(Date.now() / 1000);
@@ -36,7 +38,7 @@ export function registerDnsTools(server: McpServer, client: FirewallaClient) {
           ],
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = "Read-only Firewalla operation failed";
         return {
           content: [
             {
