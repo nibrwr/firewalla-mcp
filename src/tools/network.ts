@@ -1,3 +1,4 @@
+import { READ_ONLY_TOOL_ANNOTATIONS } from "./annotations.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { FirewallaClient } from "../firewalla-client.js";
 
@@ -5,6 +6,7 @@ export function registerNetworkTools(server: McpServer, client: FirewallaClient)
   server.tool(
     "get_network_status",
     "Ping/health check of the Firewalla box — returns uptime and timestamp",
+    READ_ONLY_TOOL_ANNOTATIONS,
     async () => {
       try {
         const result = await client.ping();
@@ -17,7 +19,7 @@ export function registerNetworkTools(server: McpServer, client: FirewallaClient)
           ],
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = "Read-only Firewalla operation failed";
         return {
           content: [
             {
@@ -34,6 +36,7 @@ export function registerNetworkTools(server: McpServer, client: FirewallaClient)
   server.tool(
     "get_network_stats",
     "Get network statistics: monthly bandwidth usage, recent speed tests, and network monitor data",
+    READ_ONLY_TOOL_ANNOTATIONS,
     async () => {
       try {
         const [monthlyUsage, speedTests, monitorData] = await Promise.all([
@@ -57,7 +60,7 @@ export function registerNetworkTools(server: McpServer, client: FirewallaClient)
           ],
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = "Read-only Firewalla operation failed";
         return {
           content: [{ type: "text" as const, text: `Error fetching network stats: ${message}` }],
           isError: true,
@@ -69,6 +72,7 @@ export function registerNetworkTools(server: McpServer, client: FirewallaClient)
   server.tool(
     "get_network_performance",
     "Get network performance metrics: WAN latency, packet loss, DNS response times, and connection quality from the network monitor.",
+    READ_ONLY_TOOL_ANNOTATIONS,
     async () => {
       try {
         const [monitorData, init] = await Promise.all([
@@ -116,7 +120,7 @@ export function registerNetworkTools(server: McpServer, client: FirewallaClient)
           ],
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = "Read-only Firewalla operation failed";
         return {
           content: [{ type: "text" as const, text: `Error fetching network performance: ${message}` }],
           isError: true,
@@ -128,6 +132,7 @@ export function registerNetworkTools(server: McpServer, client: FirewallaClient)
   server.tool(
     "get_wan_usage",
     "Get per-WAN data usage breakdown. Shows bandwidth consumption per WAN interface with download/upload totals.",
+    READ_ONLY_TOOL_ANNOTATIONS,
     async () => {
       try {
         const [monthlyUsage, init] = await Promise.all([
@@ -178,7 +183,7 @@ export function registerNetworkTools(server: McpServer, client: FirewallaClient)
           ],
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = "Read-only Firewalla operation failed";
         return {
           content: [{ type: "text" as const, text: `Error fetching WAN usage: ${message}` }],
           isError: true,
@@ -190,6 +195,7 @@ export function registerNetworkTools(server: McpServer, client: FirewallaClient)
   server.tool(
     "get_features",
     "List Firewalla features, global policy, per-network policy overrides, DoH (DNS over HTTPS) status, and system vulnerability scan status including external port scans, weak password scans, and UPnP port forwarding results",
+    READ_ONLY_TOOL_ANNOTATIONS,
     async () => {
       try {
         const result = await client.getFeatures();
@@ -202,7 +208,7 @@ export function registerNetworkTools(server: McpServer, client: FirewallaClient)
           ],
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = "Read-only Firewalla operation failed";
         return {
           content: [{ type: "text" as const, text: `Error fetching features: ${message}` }],
           isError: true,

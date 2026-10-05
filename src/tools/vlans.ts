@@ -1,3 +1,4 @@
+import { READ_ONLY_TOOL_ANNOTATIONS } from "./annotations.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { FirewallaClient } from "../firewalla-client.js";
 import { sanitizeNetworkConfig } from "../sanitize.js";
@@ -6,6 +7,7 @@ export function registerVlanTools(server: McpServer, client: FirewallaClient) {
   server.tool(
     "get_vlans",
     "List network segments, VLANs, and network groups configured on the Firewalla. Shows network names, subnets, VLAN IDs, and which interfaces they're on.",
+    READ_ONLY_TOOL_ANNOTATIONS,
     async () => {
       try {
         const result = await client.getNetworkConfig();
@@ -18,7 +20,7 @@ export function registerVlanTools(server: McpServer, client: FirewallaClient) {
           ],
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = "Read-only Firewalla operation failed";
         try {
           const initData = await client.getInit();
           const networkInfo = {

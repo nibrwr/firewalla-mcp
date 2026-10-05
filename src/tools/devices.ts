@@ -1,3 +1,4 @@
+import { READ_ONLY_TOOL_ANNOTATIONS } from "./annotations.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { FirewallaClient } from "../firewalla-client.js";
@@ -6,6 +7,7 @@ export function registerDeviceTools(server: McpServer, client: FirewallaClient) 
   server.tool(
     "get_devices",
     "List all devices on the network (hostname, IP, MAC, manufacturer, online status)",
+    READ_ONLY_TOOL_ANNOTATIONS,
     async () => {
       try {
         const hosts = await client.getDevices();
@@ -27,7 +29,7 @@ export function registerDeviceTools(server: McpServer, client: FirewallaClient) 
           ],
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = "Read-only Firewalla operation failed";
         return {
           content: [{ type: "text" as const, text: `Error fetching devices: ${message}` }],
           isError: true,
@@ -43,6 +45,7 @@ export function registerDeviceTools(server: McpServer, client: FirewallaClient) 
       count: z.number().optional().describe("Number of top devices to return (default 20)"),
       direction: z.string().optional().describe("Sort by: 'total' (default), 'download', or 'upload'"),
     },
+    READ_ONLY_TOOL_ANNOTATIONS,
     async ({ count, direction }) => {
       try {
         const initData = await client.getInit();
@@ -77,7 +80,7 @@ export function registerDeviceTools(server: McpServer, client: FirewallaClient) 
           ],
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = "Read-only Firewalla operation failed";
         return {
           content: [{ type: "text" as const, text: `Error fetching top talkers: ${message}` }],
           isError: true,
@@ -92,6 +95,7 @@ export function registerDeviceTools(server: McpServer, client: FirewallaClient) 
     {
       count: z.number().optional().describe("Max devices per network to return (default 500, max 5000)"),
     },
+    READ_ONLY_TOOL_ANNOTATIONS,
     async ({ count }) => {
       try {
         const limit = Math.min(count ?? 500, 5000);
@@ -143,7 +147,7 @@ export function registerDeviceTools(server: McpServer, client: FirewallaClient) 
           ],
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = "Read-only Firewalla operation failed";
         return {
           content: [{ type: "text" as const, text: `Error fetching clients by network: ${message}` }],
           isError: true,
@@ -158,6 +162,7 @@ export function registerDeviceTools(server: McpServer, client: FirewallaClient) 
     {
       hoursBack: z.number().optional().describe("How many hours back to look for devices that went offline (default 24, max 720)"),
     },
+    READ_ONLY_TOOL_ANNOTATIONS,
     async ({ hoursBack }) => {
       try {
         const hosts = await client.getDevices();
@@ -192,7 +197,7 @@ export function registerDeviceTools(server: McpServer, client: FirewallaClient) 
           ],
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = "Read-only Firewalla operation failed";
         return {
           content: [{ type: "text" as const, text: `Error fetching offline devices: ${message}` }],
           isError: true,

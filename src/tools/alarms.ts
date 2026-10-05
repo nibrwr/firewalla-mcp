@@ -1,3 +1,4 @@
+import { READ_ONLY_TOOL_ANNOTATIONS } from "./annotations.js";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { FirewallaClient } from "../firewalla-client.js";
@@ -12,6 +13,7 @@ export function registerAlarmTools(server: McpServer, client: FirewallaClient) {
       mac: z.string().optional().describe("Filter alarms for a specific device by MAC address"),
       count: z.number().optional().describe("Max alarms to return (default all)"),
     },
+    READ_ONLY_TOOL_ANNOTATIONS,
     async ({ severity, type, mac, count }) => {
       try {
         const result = await client.getAlarms();
@@ -49,7 +51,7 @@ export function registerAlarmTools(server: McpServer, client: FirewallaClient) {
           ],
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = "Read-only Firewalla operation failed";
         return {
           content: [{ type: "text" as const, text: `Error fetching alarms: ${message}` }],
           isError: true,

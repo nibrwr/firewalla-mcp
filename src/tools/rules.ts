@@ -1,3 +1,4 @@
+import { READ_ONLY_TOOL_ANNOTATIONS } from "./annotations.js";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { FirewallaClient } from "../firewalla-client.js";
@@ -11,6 +12,7 @@ export function registerRuleTools(server: McpServer, client: FirewallaClient) {
       target: z.string().optional().describe("Filter rules that mention this target (domain, IP, MAC, category)"),
       disabled: z.boolean().optional().describe("Include disabled rules (default false — only active rules)"),
     },
+    READ_ONLY_TOOL_ANNOTATIONS,
     async ({ action, target, disabled }) => {
       try {
         const result = await client.getRules();
@@ -59,7 +61,7 @@ export function registerRuleTools(server: McpServer, client: FirewallaClient) {
           ],
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = "Read-only Firewalla operation failed";
         return {
           content: [{ type: "text" as const, text: `Error fetching rules: ${message}` }],
           isError: true,
@@ -71,6 +73,7 @@ export function registerRuleTools(server: McpServer, client: FirewallaClient) {
   server.tool(
     "get_target_lists",
     "Get all target lists (block/allow lists) configured on the Firewalla. Shows custom domain lists, IP lists, and their associated rules.",
+    READ_ONLY_TOOL_ANNOTATIONS,
     async () => {
       try {
         const result = await client.getTargetLists();
@@ -96,7 +99,7 @@ export function registerRuleTools(server: McpServer, client: FirewallaClient) {
             ],
           };
         } catch (fallbackError) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message = "Read-only Firewalla operation failed";
           return {
             content: [{ type: "text" as const, text: `Error fetching target lists: ${message}` }],
             isError: true,

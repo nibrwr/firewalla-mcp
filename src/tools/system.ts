@@ -1,3 +1,4 @@
+import { READ_ONLY_TOOL_ANNOTATIONS } from "./annotations.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { FirewallaClient } from "../firewalla-client.js";
 
@@ -5,6 +6,7 @@ export function registerSystemTools(server: McpServer, client: FirewallaClient) 
   server.tool(
     "get_system_info",
     "Get Firewalla system information: firmware version, model, branch, uptime, public IP, CPU/memory usage, and hardware details",
+    READ_ONLY_TOOL_ANNOTATIONS,
     async () => {
       try {
         const init: any = await client.getInit();
@@ -48,7 +50,7 @@ export function registerSystemTools(server: McpServer, client: FirewallaClient) 
           ],
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = "Read-only Firewalla operation failed";
         return {
           content: [{ type: "text" as const, text: `Error fetching system info: ${message}` }],
           isError: true,
