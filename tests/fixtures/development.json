@@ -1,0 +1,41 @@
+[
+  {
+    "name": "active high alarm",
+    "source": "alarms",
+    "previous": {"observed_at":1799999700,"complete":true,"items":[]},
+    "current": {"observed_at":1799999990,"complete":true,"items":[
+      {"ref":"ALARM-01","severity":"high","event_at":1799999850},
+      {"ref":"ALARM-02","severity":"medium","event_at":1799999880}
+    ]},
+    "expected":{"state":"observed","kind":"high_severity_alarm","count":1}
+  },
+  {
+    "name": "initial inventory is a baseline",
+    "source":"devices",
+    "previous":null,
+    "current":{"observed_at":1799999990,"complete":true,"items":[{"ref":"DEVICE-01"}]},
+    "expected":{"state":"unknown","reason":"baseline_required"}
+  },
+  {
+    "name":"disabled rule drift",
+    "source":"rules",
+    "previous":{"observed_at":1799999700,"complete":true,"items":[
+      {"ref":"RULE-01","action":"block","enabled":true,"priority":3,"policy":"SCOPE-01"}
+    ]},
+    "current":{"observed_at":1799999990,"complete":true,"items":[
+      {"ref":"RULE-01","action":"block","enabled":false,"priority":3,"policy":"SCOPE-01"}
+    ]},
+    "expected":{"state":"observed","kind":"firewall_policy_drift","count":1}
+  },
+  {
+    "name":"VLAN change",
+    "source":"vlans",
+    "previous":{"observed_at":1799999700,"complete":true,"items":[
+      {"ref":"VLAN-01","tag":10,"isolated":true,"segment":"SEGMENT-01"}
+    ]},
+    "current":{"observed_at":1799999990,"complete":true,"items":[
+      {"ref":"VLAN-01","tag":20,"isolated":true,"segment":"SEGMENT-01"}
+    ]},
+    "expected":{"state":"observed","kind":"vlan_drift","count":1}
+  }
+]
