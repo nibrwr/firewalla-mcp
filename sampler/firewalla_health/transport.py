@@ -32,6 +32,8 @@ class ReadError(Exception):
 READ_FAILURES = {
     "endpoint_unavailable", "identity_unverified", "timeout", "response_too_large",
     "invalid_response", "stale", "future", "replayed", "clock_rollback", "resource_limit",
+    "auth_backoff", "auth_unavailable", "read_limit", "source_denied", "source_unavailable",
+    "storage_unavailable", "clock_invalid", "configuration",
 }
 
 
@@ -124,6 +126,10 @@ def local_status(path, owner_uid, *, deadline_seconds=DEADLINE_SECONDS):
 
 def normalize(reply, received, previous):
     """Validate the owner attestation and reduce the response to two primitives."""
+    if (isinstance(reply, dict) and set(reply) == {"schema_version", "error"}
+            and type(reply["schema_version"]) is int and reply["schema_version"] == 1
+            and isinstance(reply["error"], str) and reply["error"] in READ_FAILURES):
+        raise ReadError(reply["error"])
     if (not isinstance(reply, dict) or set(reply) != REPLY_FIELDS
             or type(reply["schema_version"]) is not int or reply["schema_version"] != 1
             or reply["operation"] != "get_network_status"):

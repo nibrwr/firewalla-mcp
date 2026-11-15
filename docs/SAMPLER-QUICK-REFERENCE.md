@@ -6,6 +6,7 @@ Use the following commands from a terminal under the M4 LaunchAgent account. See
 sampler_dir="$HOME/Library/Application Support/Firewalla Health Sampler"
 job="gui/$(id -u)/com.nibrwr.firewalla-security-sampler"
 launchctl print "$job"
+launchctl print system/com.nibrwr.firewalla-health-provider
 /opt/homebrew/bin/python3 -E -s -B "$sampler_dir/program/firewalla-health.py" status
 ```
 
@@ -19,7 +20,20 @@ launchctl print "$job"
 | State or write failure | Check job exit status, directory ownership and free space. Preserve the database and any journal during diagnosis. Check integrity on an offline copy after the job is unloaded. |
 | `observer_context.state=unknown` | Check the existing Observer read-only view. It is independent of the Firewalla health read. |
 
-## Roll back the sampler
+The credential owner can read the provider's bounded attempt counters without
+taking a sample.
+
+```sh
+sudo -u hermes /opt/hermes-homelab/node/bin/node --max-old-space-size=24 \
+  /opt/firewalla-health-provider/main.mjs counts
+```
+
+`auth_backoff` can last up to 15 minutes after an unverified login. A missing
+socket or identity failure calls for credential-owner inspection. Logout ends
+the GUI sampler. Existing connector health alone cannot verify the new owner
+path.
+
+## Independently stop or roll back the new jobs
 
 Use the authorized rollback for the new job only. Keep its state directory.
 
@@ -35,3 +49,12 @@ launchctl print "$domain/$label"
 ```
 
 Proceed when the job is absent. Verify that `plutil -extract Label raw -o - "$agent"` returns the exact label before removing that plist. Move the sampler's `program` directory out of the execution path or remove that verified program copy. Keep `state` for recovery evidence subject to the retention policy. Confirm the existing connector's health read and two-tool inventory, Observer's four responding targets, and the disabled state of the historical collector and bridge.
+
+The provider can be stopped independently with the named system job. An
+authorized restart uses `sudo launchctl kickstart -k system/com.nibrwr.firewalla-health-provider`.
+For rollback, disable and boot out that exact label. Verify it is absent and the
+plist contains the exact provider label before removing its newly installed
+plist. Remove the provider program copy from `/opt/firewalla-health-provider`.
+After checking ownership, remove only the new socket and its empty directory.
+Keep the bounded provider state private under `/var/db/firewalla-health-provider`.
+The original Firewalla tunnel and Observer can be read back independently.

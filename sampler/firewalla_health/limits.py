@@ -5,7 +5,8 @@ import signal
 from .storage import FILE_CAP
 
 
-MAX_RSS = 100 * 1024 * 1024
+# The credential-owner provider is budgeted for the other 68 MiB.
+MAX_RSS = 32 * 1024 * 1024
 
 
 def _limit(kind, soft, hard):

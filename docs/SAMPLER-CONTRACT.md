@@ -32,3 +32,42 @@ git diff --check c6125caa9c3dae5f33e4306ed4e2e9eca6d6db8f...HEAD
 The temporary Unix socket tests require permission to bind a local socket. They use fictional data with no Firewalla access. No dependency installation is needed for the sampler. The Node source and lockfile retain the baseline byte for byte. The unchanged TypeScript build was not rerun. Hosted validation is **NOT APPLICABLE**.
 
 The [Operator Guide](SAMPLER-OPERATOR-GUIDE.md) and [Operations Quick Reference](SAMPLER-QUICK-REFERENCE.md) describe the endpoint handshake, resource guards, evidence format and rollback.
+
+## November 15 provider continuation
+
+The continuation authorizes a new credential-owner M4 LaunchDaemon
+`com.nibrwr.firewalla-health-provider` and supervised use of its fixed local
+socket. The existing sampler retains its conditional schedule authority. Both
+service labels and their install paths were vacant in the system and intended
+GUI domains. Existing M4 Firewalla and Observer responded before work, and
+legacy collector, observer and Firewalla bridge disablements were read back.
+The managed worktree resumed the existing PR #2 commit `3edafd3`.
+
+The provider uses the installed pinned Firewalla package for authentication,
+crypto, and its fixed ping message. A local admission check requires an exact
+Darwin peer UID and request frame. The independent sampler checks the provider
+UID and a strict response schema. The provider pins the owner-confirmed target,
+binds cloud group selection to the approved group and exactly one paired key,
+and uses persisted reservations for both reads and authentication. Production
+enrollment enters the protected values only in the credential owner's local
+terminal.
+
+**PASS, fixture scope.** Native M4 build and manifest lint. Provider tests used
+real Darwin peer credentials and a temporary ACL, bounded bodies, a wrong UID,
+an invalid request, concurrency, timeout, SDK crypto with synthetic keys, and
+read and replay rules across reopening. The Python suite includes the sampler's
+state and recovery checks and hidden enrollment behavior. A real local socket
+fixture passed two cross-process sampler reads with both stores reopened and
+recorded the expected control-process restart. The examples use synthetic
+targets and credentials.
+
+**BLOCKED, production.** Administrator authorization was unavailable for
+unattended credential-owner execution. The attended identity inputs and owner
+verification therefore remain required. The source was staged as a private
+unprivileged bundle. Exact appliance identity, cross-account live socket
+access, installation, schedule, restart, rollback, and combined production
+resource measurement require live qualification. The sampler operates inside the logged-in
+GUI session. Host reboot recovery was not exercised.
+
+Use the [Operator Guide](SAMPLER-OPERATOR-GUIDE.md) for the attended steps and the
+[Operations Quick Reference](SAMPLER-QUICK-REFERENCE.md) for recovery and rollback.
