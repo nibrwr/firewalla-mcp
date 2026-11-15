@@ -105,29 +105,29 @@ export function makeReader({ identity, readCredentials, secure, ping, login, box
       if (error.code === 'source_denied') session = undefined;
       throw error;
     }
-    if (response?.error) {
+    if (response?.status === 'expired' || response?.error?.message === 'decrypt_error') {
       session = undefined;
       throw new ProviderError('source_denied');
     }
-    if (typeof response?.message !== 'string') {
-      session = undefined;
-      throw new ProviderError('invalid_response');
-    }
-    let decrypted;
+    if (response?.error) throw new ProviderError('source_unavailable');
+    if (typeof response?.message !== 'string') throw new ProviderError('invalid_response');
+    let raw;
     try {
-      const raw = secure.aesDecrypt(response.message, key);
-      if (Buffer.byteLength(raw) > MAX_RESPONSE) throw new ProviderError('response_too_large');
-      decrypted = JSON.parse(raw);
+      raw = secure.aesDecrypt(response.message, key);
     } catch {
       session = undefined;
       throw new ProviderError('invalid_response');
     }
-    signal.throwIfAborted();
-    if (decrypted?.code !== 200) {
-      session = undefined;
-      throw new ProviderError('source_denied');
+    if (Buffer.byteLength(raw) > MAX_RESPONSE) throw new ProviderError('response_too_large');
+    let decrypted;
+    try {
+      decrypted = JSON.parse(raw);
+    } catch {
+      throw new ProviderError('invalid_response');
     }
-    if (decrypted.replyid !== requestId) throw new ProviderError('identity_unverified');
+    signal.throwIfAborted();
+    if (decrypted?.replyid !== requestId) throw new ProviderError('identity_unverified');
+    if (decrypted.code !== 200) throw new ProviderError('source_unavailable');
     const output = health(decrypted.data, clock());
     const seen = Date.parse(output.timestamp);
     if (lastSeen !== undefined && seen <= lastSeen) throw new ProviderError('replayed');

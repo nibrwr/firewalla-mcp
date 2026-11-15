@@ -22,10 +22,13 @@ provider state. A one-shot authenticated read must match exactly one cloud group
 key for that pairing. It checks the encrypted reply ID against the current ping
 and checks the source timestamp before accepting identity. Use the provider's fixed success result as evidence.
 The credential owner retains the existing key files. The provider reuses its
-authenticated session between reads. A LAN protocol rejection clears the
-cached session for the next eligible request. A failed or interrupted login
-suppresses another attempt for 15 minutes. A new login receives the shorter
-five-minute backoff only when its observation survives the durable replay check.
+authenticated session between reads, including after a temporary LAN outage.
+A token or key rejection clears the cached session for the next eligible
+request. Firewalla's firmware returns HTTP 412 for an expired key and 503 during
+device initialization. A failed or interrupted login suppresses another
+attempt for 15 minutes. A new login receives the shorter five-minute backoff
+only when its observation survives the durable replay check.
+[Firewalla key check](https://github.com/firewalla/firewalla/blob/master/api/lib/Encryption.js#L46-L69) · [Firewalla initialization check](https://github.com/firewalla/firewalla/blob/master/api/lib/SystemCheck.js#L25-L40)
 
 The socket allows the designated sampler account to connect through a
 per-account ACL. The provider checks the connecting account with Darwin peer
@@ -50,7 +53,8 @@ number of seconds. The sampler's deadline is ten seconds. The provider's
 deadline is nine seconds, covering socket intake and any cloud and LAN work.
 All response bodies are capped at 16 KiB before JSON parsing. The provider
 returns a fixed error code on failure. Both sides enforce their own persisted
-read spacing. The provider reserves its LAN read after cloud authentication,
+read spacing. The provider can wait for the next eligible dispatch within its
+request deadline. It reserves its LAN read after cloud authentication,
 immediately before dispatch. It makes one encrypted LAN request for an
 eligible sample and no upstream request on rejected socket input. The vendor
 LAN protocol protects the payload with the paired key over HTTP. The LAN
@@ -142,7 +146,10 @@ The final command must return `{"identity":"verified","state":"observed"}`.
 A mismatch, failed login, malformed LAN response, timeout, or resource breach
 blocks activation. It consumes a read reservation. Wait five minutes before
 another eligible query. An unverified login is subject to the longer backoff.
-Keep the raw group and address in the hidden prompt.
+Keep the raw group and address in the hidden prompt. If enrollment reports a
+storage sync failure, check the storage and repeat the hidden prompts with
+the same values. A matching published pin can be synced again. A different
+pin fails validation.
 
 ## Stage the sampler and qualify the socket
 
@@ -164,26 +171,47 @@ cp -R sampler "$sampler_dir/program"
 
 After the earlier identity read is at least five minutes old, start the
 reviewed boot executable under supervision in a separate Terminal window.
+Select a 15-minute window with the existing services running normally. The
+M4 timing utility measures the full lifetime of the provider during that window.
 
 ```sh
-sudo /opt/firewalla-health-provider/boot
+sudo /usr/bin/time -l /opt/firewalla-health-provider/boot
 ```
 
-The executable repairs only the new runtime directory, admits the configured
-account to search it, and drops administrator privileges before starting Node.
+The executable builds the new runtime directory and its search ACL under a
+root-only staging directory, then publishes it atomically. It validates an
+existing runtime directory and drops administrator privileges before starting Node.
 In the sampler account's Terminal window, run the staged one-shot health
 sample and inspect its status.
 
 ```sh
-/opt/homebrew/bin/python3 -E -s -B "$sampler_dir/program/firewalla-health.py" run
+/usr/bin/time -l /opt/homebrew/bin/python3 -E -s -B "$sampler_dir/program/firewalla-health.py" run
 /opt/homebrew/bin/python3 -E -s -B "$sampler_dir/program/firewalla-health.py" status
 ```
 
 Require observed health and a durable reservation. Check admission from the
 permitted account and verify that unexpected input stops before LAN dispatch.
-Allow five minutes between actual health reads. Stop the foreground provider
-before loading the installed daemon. The private ledger and sampler history
-survive that transition.
+Repeat the timed sample five minutes apart until the window contains at
+least three observations. The provider attempt counter must advance once
+per observation and the auth counter should stay fixed after the first
+successful login. Use the counts command in the quick reference. Stop the
+foreground provider with Control-C before loading the installed daemon. Its
+timing summary and the sampler summaries provide the incremental process
+usage above the existing M4 services.
+
+Add provider and sampler user and system CPU across the 15-minute window.
+The total ceiling is nine CPU seconds. Add the provider peak RSS and the
+largest sampler peak RSS. The combined ceiling is 100 MiB. On macOS,
+`time -l` gives the maximum resident set size in bytes. Check the combined
+disk allocation, including the new code, private state, and manifests, against
+32 MiB.
+
+```sh
+sudo /usr/bin/du -sk "$provider_dir" "$provider_state" "$socket_dir"
+/usr/bin/du -sk "$sampler_dir" "$bundle/provider.plist" deploy/com.nibrwr.firewalla-security-sampler.plist.in
+```
+
+The private ledger and sampler history survive the transition to launchd.
 
 ## Enable the provider and sampler schedules
 
@@ -218,7 +246,8 @@ paths and the historical disablements afterwards.
 
 A GUI LaunchAgent samples only while its login session is running. Logout
 stops collection and the next eligible invocation records any resulting gap.
-The provider recreates its runtime directory and exact search ACL on launch.
+The provider recreates its runtime directory and exact search ACL when the
+directory is absent. A conflicting runtime entry prevents launch.
 After a host reboot, verify daemon readiness and the socket, then log in for the
 GUI sampler. The directory recreation passed a fixture check. Host reboot recovery still needs
 live verification.

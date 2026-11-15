@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
+import http from 'node:http';
+import { syncBuiltinESMExports } from 'node:module';
 import { Readable } from 'node:stream';
 import test from 'node:test';
 import cloudFetch, { boundedJson, loginWithDeadline, readBox } from '../../provider/network.mjs';
@@ -25,6 +28,26 @@ test('production cloud and LAN adapters reject alternate endpoints before I/O', 
   }, signal), { code: 'configuration' });
   assert.throws(() => readBox(new URL('http://127.0.0.1:8833/v1/encipher/message/g'), {}, '', signal),
     { code: 'configuration' });
+});
+
+test('LAN HTTP 412 rejects a rotated key while service failures preserve the session', async (t) => {
+  let statusCode;
+  t.mock.method(http, 'request', (_url, _options, respond) => Object.assign(new EventEmitter(), {
+    end() { respond({ statusCode, destroy() {} }); },
+  }));
+  syncBuiltinESMExports();
+  try {
+    const url = new URL('http://192.168.255.3:8833/v1/encipher/message/fixture');
+    const signal = new AbortController().signal;
+    for (const [status, code] of [[401, 'source_denied'], [403, 'source_denied'],
+      [412, 'source_denied'], [400, 'source_unavailable'], [503, 'source_unavailable']]) {
+      statusCode = status;
+      await assert.rejects(readBox(url, {}, 'fixture-token', signal), { code });
+    }
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
 });
 
 test('the installed pinned SDK creates only a ping command in this adapter', async () => {

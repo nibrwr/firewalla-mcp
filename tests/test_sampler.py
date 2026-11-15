@@ -41,6 +41,17 @@ def hold_reservation(directory, at, entered, release):
     os._exit(0 if outcome == "observed" else 23)
 
 
+def wait_before_reservation(directory, at, entered, release):
+    def settle(seconds):
+        nonlocal at
+        entered.set()
+        if not release.wait(5):
+            os._exit(24)
+        at += seconds
+    outcome = sampler.sample(Path(directory), lambda: observed(at), clock=lambda: at, settle=settle)
+    os._exit(0 if outcome == "observed" else 25)
+
+
 def write_when_full(directory, at):
     signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
     resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
@@ -300,6 +311,27 @@ class SamplerTests(unittest.TestCase):
             child.join(5)
         self.assertEqual(child.exitcode, 0)
         self.assertEqual(self.status()["health"]["state"], "observed")
+
+    def test_next_run_waiting_for_jitter_does_not_claim_an_interrupted_reservation(self):
+        self.tick(transport.ReadError("timeout"))
+        ctx = multiprocessing.get_context("fork")
+        crashed = ctx.Process(target=abandon_after_reserving, args=(self.directory, START + 308))
+        crashed.start()
+        crashed.join(5)
+        self.assertEqual(crashed.exitcode, 19)
+        entered, release = ctx.Event(), ctx.Event()
+        child = ctx.Process(target=wait_before_reservation, args=(self.directory, START + 600, entered, release))
+        child.start()
+        self.at = START + 601
+        try:
+            self.assertTrue(entered.wait(5))
+            self.assertEqual(self.status()["health"], {"state": "unknown", "reason": "interrupted"})
+            self.assertTrue(self.status()["gap_active"])
+        finally:
+            release.set()
+            child.join(5)
+        self.assertEqual(child.exitcode, 0)
+        self.assertTrue(self.status()["gap_persisted"])
 
     def test_fractional_uptime_decrease_opens_restart_evidence(self):
         self.tick(observed(self.at, 1000.9))

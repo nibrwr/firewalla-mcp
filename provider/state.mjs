@@ -6,6 +6,9 @@ import { setTimeout as sleep } from 'node:timers/promises';
 export const INTERVAL_MS = 300_000;
 export const AUTH_BACKOFF_MS = 900_000;
 export const MAX_RESPONSE = 16 * 1024;
+export const PROVIDER_DEADLINE_MS = 9000;
+const MAX_PROVIDER_RSS = 68 * 1024 * 1024;
+const MAX_PROVIDER_CPU_US = 1_000_000;
 
 export class ProviderError extends Error {
   constructor(code) {
@@ -55,7 +58,7 @@ export async function waitForRead(ledger, signal, clock = Date.now) {
   const { lastRead } = ledger.view();
   if (lastRead !== null) {
     const early = lastRead + INTERVAL_MS - now;
-    if (now < lastRead || early > 2000) throw new ProviderError('read_limit');
+    if (now < lastRead || early >= PROVIDER_DEADLINE_MS) throw new ProviderError('read_limit');
     if (early > 0) await sleep(early + 1, undefined, { signal });
   }
   signal.throwIfAborted();
@@ -64,6 +67,24 @@ export async function waitForRead(ledger, signal, clock = Date.now) {
 export async function reserveScheduled(ledger, signal, clock = Date.now) {
   await waitForRead(ledger, signal, clock);
   ledger.reserveRead(clock());
+}
+
+function withinMemory() {
+  return process.memoryUsage.rss() <= MAX_PROVIDER_RSS
+    && process.resourceUsage().maxRSS * 1024 <= MAX_PROVIDER_RSS;
+}
+
+export async function collectObservation(read, ledger, signal, memoryOk = withinMemory) {
+  const cpuStart = process.cpuUsage();
+  if (!memoryOk()) throw new RestartRequired();
+  await waitForRead(ledger, signal);
+  const state = await read(signal).finally(() => {
+    if (!memoryOk()) throw new RestartRequired();
+  });
+  const cpu = process.cpuUsage(cpuStart);
+  if (cpu.user + cpu.system > MAX_PROVIDER_CPU_US) throw new ProviderError('resource_limit');
+  ledger.confirmObservation(Date.parse(state.timestamp));
+  return state;
 }
 
 function currentLedger(path) {

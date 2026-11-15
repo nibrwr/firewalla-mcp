@@ -53,6 +53,24 @@ Proceed when the job is absent. Verify that `plutil -extract Label raw -o - "$ag
 The provider can be stopped independently with the named system job. Its boot
 executable restores only the new runtime directory before running as
 `hermes`. An authorized restart uses `sudo launchctl kickstart -k system/com.nibrwr.firewalla-health-provider`.
+For an authorized recovery test while the new manifests are still installed,
+enable and bootstrap the exact job you stopped. Check a fresh observation
+and the existing history after the next eligible run.
+
+Recover the sampler in its login session.
+
+```sh
+launchctl enable "$domain/$label"
+launchctl bootstrap "$domain" "$agent"
+```
+
+Recover the provider in the system domain.
+
+```sh
+sudo launchctl enable system/com.nibrwr.firewalla-health-provider
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.nibrwr.firewalla-health-provider.plist
+```
+
 For rollback, disable and boot out that exact label. Verify it is absent and the
 plist contains the exact provider label before removing its newly installed
 plist. Remove the provider program copy from `/opt/firewalla-health-provider`.

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Capture independently verified Firewalla identity in the credential owner's terminal."""
 import ctypes
+import errno
 import getpass
 import hashlib
 import ipaddress
@@ -36,12 +37,26 @@ def digest(value):
     return hashlib.sha256(value.encode("ascii")).hexdigest()
 
 
-def _publish(record, facts):
+def _matching_pin(record, data):
+    try:
+        fd = os.open(record, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return False
+    with os.fdopen(fd, "rb") as source:
+        info = os.fstat(source.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1
+                or stat.S_IMODE(info.st_mode) != 0o600 or info.st_size != len(data)
+                or source.read(len(data) + 1) != data):
+            raise FileExistsError
+    return True
+
+
+def _create_pin(record, data):
     fd, name = tempfile.mkstemp(prefix=".enrollment-", dir=record.parent)
     temporary = Path(name)
     try:
-        with os.fdopen(fd, "w", encoding="ascii") as output:
-            json.dump(facts, output, separators=(",", ":"))
+        with os.fdopen(fd, "wb") as output:
+            output.write(data)
             output.flush()
             os.fsync(output.fileno())
         rename_exclusive = ctypes.CDLL(None, use_errno=True).renamex_np
@@ -50,14 +65,21 @@ def _publish(record, facts):
         # Darwin RENAME_EXCL publishes the synced file without replacing a pin.
         if rename_exclusive(os.fsencode(temporary), os.fsencode(record), 0x4) != 0:
             code = ctypes.get_errno()
-            raise OSError(code, os.strerror(code))
-        directory = os.open(record.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+            if code != errno.EEXIST or not _matching_pin(record, data):
+                raise OSError(code, os.strerror(code))
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _publish(record, facts):
+    data = json.dumps(facts, separators=(",", ":")).encode("ascii")
+    if not _matching_pin(record, data):
+        _create_pin(record, data)
+    directory = os.open(record.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 def enroll(sampler, *, hidden=getpass.getpass):
@@ -66,8 +88,6 @@ def enroll(sampler, *, hidden=getpass.getpass):
     if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
         raise ValueError
     record = STATE / "identity.json"
-    if os.path.lexists(record):
-        raise FileExistsError
     if sampler <= 0 or sampler == os.getuid() or pwd.getpwuid(sampler).pw_uid != sampler:
         raise ValueError
     target = protected_target()

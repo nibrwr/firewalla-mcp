@@ -29,8 +29,10 @@ class EnrollmentTests(unittest.TestCase):
             self.assertNotIn("fixture-group-reference", record)
             self.assertNotIn("192.168.255.6", record)
             self.assertEqual(json.loads(record)["schema_version"], 1)
+            changed = iter(["different-fixture-group", "192.168.255.6"])
             with self.assertRaises(FileExistsError):
-                attest.enroll(os.getuid() + 1, hidden=self.fail)
+                attest.enroll(os.getuid() + 1, hidden=lambda _: next(changed))
+            self.assertEqual(path.read_text(), record)
 
     def test_mismatched_target_never_creates_a_pin(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(attest, "STATE", Path(folder)), \
@@ -58,3 +60,23 @@ class EnrollmentTests(unittest.TestCase):
             self.assertFalse((Path(folder) / "identity.json").exists())
             enroll()
             self.assertTrue((Path(folder) / "identity.json").is_file())
+
+    def test_directory_sync_failure_retries_without_replacing_the_published_pin(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(attest, "STATE", Path(folder)), patch.object(
+            attest, "protected_target", return_value="192.168.255.6"
+        ), patch("pwd.getpwuid") as lookup:
+            lookup.return_value.pw_uid = os.getuid() + 1
+
+            def enroll():
+                entries = iter(["fixture-group-reference", "192.168.255.6"])
+                attest.enroll(os.getuid() + 1, hidden=lambda _: next(entries))
+
+            with patch.object(attest.os, "fsync", side_effect=[None, OSError("fixture directory sync")]):
+                with self.assertRaises(OSError):
+                    enroll()
+            pin = Path(folder, "identity.json")
+            published = pin.stat()
+            self.assertEqual(list(Path(folder).iterdir()), [pin])
+            enroll()
+            self.assertEqual(pin.stat().st_ino, published.st_ino)
+            self.assertEqual(pin.stat().st_mtime_ns, published.st_mtime_ns)

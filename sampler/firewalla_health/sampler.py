@@ -55,7 +55,7 @@ def _prune(db, now):
     )
 
 
-def _reserve(db, now):
+def _reserve(db, now, lock):
     slot = int(now) // INTERVAL
     db.execute("BEGIN IMMEDIATE")
     last = db.execute("SELECT slot,started FROM samples ORDER BY slot DESC LIMIT 1").fetchone()
@@ -78,6 +78,7 @@ def _reserve(db, now):
     if missing > 0:
         db.execute("UPDATE samples SET state='unknown',reason='interrupted' WHERE state='pending'")
         _miss(db, current, slot - 1, missing, now)
+    storage.track_reservation(lock, slot)
     db.execute("INSERT INTO samples (slot,started,state) VALUES (?,?,'pending')", (slot, now))
     return None
 
@@ -121,10 +122,10 @@ def sample(directory, read, *, clock=time.time, open_db=None, settle=None, requi
     connect_state = open_db or connect
     try:
         storage.state_directory(directory, create=True)
-        with storage.exclusive(directory), closing(connect_state(directory)) as db:
+        with storage.exclusive(directory) as lock, closing(connect_state(directory)) as db:
             started = clock()
             with db:
-                skipped = _reserve(db, started)
+                skipped = _reserve(db, started, lock)
             if skipped in ("too_soon", "already_sampled") and settle is not None:
                 last = db.execute("SELECT slot,started FROM samples ORDER BY slot DESC LIMIT 1").fetchone()
                 eligible = max(last["started"] + INTERVAL, (last["slot"] + 1) * INTERVAL)
@@ -133,7 +134,7 @@ def sample(directory, read, *, clock=time.time, open_db=None, settle=None, requi
                     settle(remaining)
                     started = clock()
                     with db:
-                        skipped = _reserve(db, started)
+                        skipped = _reserve(db, started, lock)
             if skipped:
                 return skipped
             previous = _progress(db)["last_observed"]
@@ -199,7 +200,8 @@ def status(directory, *, now=None):
                 "SELECT count(*) FROM incidents WHERE opened>? AND opened<=?", window,
             ).fetchone()[0]
             gap_persisted = bool(progress["gap_active"]) if progress else False
-            reading = last is not None and last["state"] == "pending" and storage.writer_active(directory)
+            reading = (last is not None and last["state"] == "pending"
+                       and storage.writer_active(directory, last["slot"]))
             gap_due = False
             if progress:
                 accounted_slot = last["slot"] if reading else progress["last_slot"]

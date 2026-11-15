@@ -44,7 +44,8 @@ function fixture({ groups = [group], host = address, response = answer, rejected
       assert.equal(JSON.parse(body.message).operation, 'ping');
       const number = ticks++;
       if (number === 0 && rejected === 'http') throw new ProviderError('source_denied');
-      if (number === 0 && rejected === 'envelope') return { error: 'fixture-key-rejected' };
+      if (number === 0 && rejected === 'envelope') return { status: 'expired' };
+      if (number === 0 && rejected === 'transient') return { error: 'fixture-temporary-failure' };
       const out = number === 0 ? response
         : { ...response, data: { ...response.data, timestamp: '2027-01-15T07:59:59.500Z' } };
       return { message: JSON.stringify({ replyid: JSON.parse(body.message).message.obj.id, ...out }) };
@@ -106,6 +107,14 @@ test('a rejected LAN session is refreshed at the next call without retrying the 
     assert.equal(calls.filter((call) => call === 'cloud').length, 2);
     assert.equal(calls.filter((call) => call === 'lan').length, 2);
   }
+});
+
+test('a transient error envelope keeps the verified session for the next eligible read', async () => {
+  const { reader, calls } = fixture({ rejected: 'transient' });
+  const signal = new AbortController().signal;
+  await assert.rejects(reader(signal), { code: 'source_unavailable' });
+  await reader(signal);
+  assert.deepEqual(calls, ['load', 'reserve-auth', 'cloud', 'lan', 'lan']);
 });
 
 test('the LAN reservation starts after slow authentication and before dispatch', async () => {

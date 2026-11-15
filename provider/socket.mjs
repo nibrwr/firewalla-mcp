@@ -1,6 +1,6 @@
 import { chmodSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { MAX_RESPONSE, ProviderError, RestartRequired } from './state.mjs';
+import { MAX_RESPONSE, PROVIDER_DEADLINE_MS, ProviderError, RestartRequired } from './state.mjs';
 
 export const HEALTH_REQUEST = '{"schema_version":1,"operation":"get_network_status"}\n';
 const request = Buffer.from(HEALTH_REQUEST);
@@ -12,7 +12,7 @@ export function safeCode(error) {
   return error instanceof ProviderError && ERRORS.has(error.code) ? error.code : 'source_unavailable';
 }
 
-export async function serve({ path, uid, native, collect, deadlineMs = 9_000, onRestart = () => {} }) {
+export async function serve({ path, uid, native, collect, deadlineMs = PROVIDER_DEADLINE_MS, onRestart = () => {} }) {
   let active;
   let draining = false;
   const server = createServer({ allowHalfOpen: true }, (peer) => {

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import sqlite3
 import stat
+import struct
 
 DB_NAME = "health.sqlite3"
 LOCK_NAME = "sample.lock"
@@ -13,6 +14,8 @@ JOURNAL_NAME = DB_NAME + "-journal"
 FILE_CAP = 12 * 1024 * 1024
 SQLITE_PAGES = 2048
 PAGE_SIZE = 4096
+# Darwin's struct flock uses two off_t fields, pid_t and two short fields.
+LOCK_RANGE = struct.Struct("@qqihh")
 
 SCHEMA = (
     """CREATE TABLE samples (
@@ -54,8 +57,18 @@ def private_file(path, *, limit=FILE_CAP):
     return _private_file(path.lstat(), limit)
 
 
-def writer_active(directory):
-    """Check the established lock without creating or changing state."""
+def _lock_range(fd, offset, access):
+    request = LOCK_RANGE.pack(offset, 1, 0, access, os.SEEK_SET)
+    fcntl.fcntl(fd, fcntl.F_OFD_SETLK, request)
+
+
+def track_reservation(fd, slot):
+    # Byte zero excludes other writers. A distinct range belongs to this attempt.
+    _lock_range(fd, slot + 1, fcntl.F_WRLCK)
+
+
+def writer_active(directory, slot):
+    """Check the named reservation without creating or changing state."""
     try:
         fd = os.open(directory / LOCK_NAME, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
@@ -63,7 +76,7 @@ def writer_active(directory):
     try:
         _private_file(os.fstat(fd), 0)
         try:
-            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            _lock_range(fd, slot + 1, fcntl.F_RDLCK)
         except BlockingIOError:
             return True
         return False
@@ -99,10 +112,10 @@ def exclusive(directory):
     try:
         _private_file(os.fstat(fd), 0)
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _lock_range(fd, 0, fcntl.F_WRLCK)
         except BlockingIOError as error:
             raise Busy from error
-        yield
+        yield fd
     finally:
         os.close(fd)
 

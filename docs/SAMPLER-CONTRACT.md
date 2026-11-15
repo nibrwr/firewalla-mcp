@@ -83,13 +83,22 @@ rejected LAN session gets a fresh login on its next eligible attempt. The
 reviewed SDK hash covers the transitive executable modules, and the provider
 reserves each real read at LAN dispatch.
 
-**PASS, corrected fixture scope.** Nineteen Node tests, 33 Python tests, the
-native boot-directory fixture, Clang analysis and both launchd manifest checks
-passed on the M4. With the final Node flags, three runs peaked at 64.7 MiB
-provider RSS while exercising four fictional encrypted reads per run. The
-31-day sampler simulation peaked at 26.8 MiB RSS, used 220 KiB of committed
-SQLite storage, and enforced 288 reads per day. These measurements omit live
-TLS, process startup under launchd and real appliance work.
+The independent correction review of `b6494b87b70c4e7f1e555c9c68b5e585b9383ba4`
+found six additional issues. The follow-up starts the runtime directory in
+root-only staging and publishes it with an exclusive rename, waits for the next
+permitted dispatch within the request deadline, preserves a session through
+temporary service failures, drains the provider on RSS errors, and permits
+an identical enrollment retry after a directory sync failure. Status now
+checks a lock range specific to the pending reservation.
+
+**PASS, corrected fixture scope.** Twenty-three Node tests, 35 Python tests,
+the native boot-directory fixture, Clang analysis and both launchd manifest
+checks passed on the M4. With the final Node flags, three runs peaked at
+64.9 MiB provider RSS and 15.73 ms of CPU over four fictional encrypted reads.
+The 31-day sampler simulation peaked at 26.3 MiB RSS, used 220 KiB of committed
+SQLite storage, and enforced 288 reads per day. Its largest four-read CPU total
+was 40.9 ms. These measurements omit live TLS, process startup under launchd
+and real appliance work.
 
 **BLOCKED, production.** Administrator authorization was unavailable for
 unattended credential-owner execution. The attended identity inputs and owner

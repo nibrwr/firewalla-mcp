@@ -5,15 +5,13 @@ import { join } from 'node:path';
 import { makeReader } from './firewalla.mjs';
 import { loginWithDeadline, readBox } from './network.mjs';
 import { loadPinnedSdk } from './sdk.mjs';
-import { openLedger, privateDir, privateRead, ProviderError, reserveScheduled, RestartRequired, viewLedger, waitForRead } from './state.mjs';
+import { collectObservation, openLedger, privateDir, privateRead, PROVIDER_DEADLINE_MS,
+  ProviderError, reserveScheduled, viewLedger } from './state.mjs';
 import { safeCode, serve } from './socket.mjs';
 
 const DIR = '/var/db/firewalla-health-provider';
 const SOCKET_DIR = '/var/run/firewalla-health';
 const CREDENTIALS = '/var/db/hermes-homelab/secrets/firewalla';
-const WAIT_MS = 9_000;
-const MAX_PROVIDER_RSS = 68 * 1024 * 1024;
-const MAX_PROVIDER_CPU_US = 1_000_000;
 
 function identity() {
   const sampler = privateRead('/opt/firewalla-health-provider/sampler-uid', 11, { uid: 0, mode: 0o644 });
@@ -70,11 +68,6 @@ function removeStaleSocket(path) {
   unlinkSync(path);
 }
 
-function withinMemory() {
-  return process.memoryUsage.rss() <= MAX_PROVIDER_RSS
-    && process.resourceUsage().maxRSS * 1024 <= MAX_PROVIDER_RSS;
-}
-
 async function run(action) {
   if (process.platform !== 'darwin' || process.arch !== 'arm64' || process.getuid() === 0
       || process.versions.node !== '24.20.0') {
@@ -98,20 +91,10 @@ async function run(action) {
       reserveAuth: ledger.reserveAuth, reserveRead: (signal) => reserveScheduled(ledger, signal),
     });
 
-    async function collect(signal) {
-      const cpuStart = process.cpuUsage();
-      if (!withinMemory()) throw new RestartRequired();
-      await waitForRead(ledger, signal);
-      const state = await reader(signal);
-      if (!withinMemory()) throw new RestartRequired();
-      const cpu = process.cpuUsage(cpuStart);
-      if (cpu.user + cpu.system > MAX_PROVIDER_CPU_US) throw new ProviderError('resource_limit');
-      ledger.confirmObservation(Date.parse(state.timestamp));
-      return state;
-    }
+    const collect = (signal) => collectObservation(reader, ledger, signal);
 
     if (action === 'verify') {
-      const timer = AbortSignal.timeout(WAIT_MS);
+      const timer = AbortSignal.timeout(PROVIDER_DEADLINE_MS);
       const verified = await collect(timer);
       return { identity: verified.identity, state: 'observed' };
     }
@@ -121,7 +104,7 @@ async function run(action) {
     removeStaleSocket(path);
     let stop;
     const provider = await serve({
-      path, uid: pin.samplerUid, native, collect, deadlineMs: WAIT_MS, onRestart: () => stop(),
+      path, uid: pin.samplerUid, native, collect, onRestart: () => stop(),
     });
     await new Promise((done) => {
       let closing;
