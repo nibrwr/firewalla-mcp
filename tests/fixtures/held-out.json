@@ -1,0 +1,82 @@
+[
+  {
+    "name":"alarm repeat and older high alarm",
+    "source":"alarms",
+    "previous":{"observed_at":1799999700,"complete":true,"items":[{"ref":"ALARM-A","severity":"critical","event_at":1799999690}]},
+    "current":{"observed_at":1799999990,"complete":true,"items":[
+      {"ref":"ALARM-A","severity":"critical","event_at":1799999690},
+      {"ref":"ALARM-B","severity":"high","event_at":1799999630},
+      {"ref":"ALARM-C","severity":"critical","event_at":1799999910}
+    ]},
+    "expected":{"state":"observed","kind":"high_severity_alarm","count":1}
+  },
+  {
+    "name":"truncated empty alarm page cannot prove zero",
+    "source":"alarms",
+    "previous":{"observed_at":1799999700,"complete":true,"items":[]},
+    "current":{"observed_at":1799999990,"complete":false,"items":[]},
+    "expected":{"state":"unknown","reason":"incomplete_snapshot"}
+  },
+  {
+    "name":"new and removed device in same interval",
+    "source":"devices",
+    "previous":{"observed_at":1799999700,"complete":true,"items":[{"ref":"DEVICE-A"},{"ref":"DEVICE-B"}]},
+    "current":{"observed_at":1799999990,"complete":true,"items":[{"ref":"DEVICE-B"},{"ref":"DEVICE-C"}]},
+    "expected":{"state":"observed","kind":"newly_observed_device","count":1}
+  },
+  {
+    "name":"stale inventory baseline",
+    "source":"devices",
+    "previous":{"observed_at":1799998199,"complete":true,"items":[]},
+    "current":{"observed_at":1799999990,"complete":true,"items":[{"ref":"DEVICE-Z"}]},
+    "expected":{"state":"unknown","reason":"stale_snapshot"}
+  },
+  {
+    "name":"extra input field is neither used nor exposed",
+    "source":"devices",
+    "previous":{"observed_at":1799999700,"complete":true,"items":[]},
+    "current":{"observed_at":1799999990,"complete":true,"items":[{"ref":"DEVICE-A","label":"PRIVATE-DEVICE"}]},
+    "expected":{"state":"unknown","reason":"invalid_snapshot"}
+  },
+  {
+    "name":"same rule content in different order",
+    "source":"rules",
+    "previous":{"observed_at":1799999700,"complete":true,"items":[
+      {"ref":"RULE-A","action":"allow","enabled":true,"priority":5,"policy":"SCOPE-A"},
+      {"ref":"RULE-B","action":"block","enabled":true,"priority":6,"policy":"SCOPE-B"}
+    ]},
+    "current":{"observed_at":1799999990,"complete":true,"items":[
+      {"ref":"RULE-B","action":"block","enabled":true,"priority":6,"policy":"SCOPE-B"},
+      {"ref":"RULE-A","action":"allow","enabled":true,"priority":5,"policy":"SCOPE-A"}
+    ]},
+    "expected":{"state":"observed","kind":"firewall_policy_drift","count":0}
+  },
+  {
+    "name":"one addition and one deletion",
+    "source":"rules",
+    "previous":{"observed_at":1799999700,"complete":true,"items":[{"ref":"RULE-A","action":"allow","enabled":true,"priority":5,"policy":"SCOPE-A"}]},
+    "current":{"observed_at":1799999990,"complete":true,"items":[{"ref":"RULE-C","action":"match","enabled":true,"priority":6,"policy":"SCOPE-B"}]},
+    "expected":{"state":"observed","kind":"firewall_policy_drift","count":2}
+  },
+  {
+    "name":"VLAN fallback flagged incomplete",
+    "source":"vlans",
+    "previous":{"observed_at":1799999700,"complete":true,"items":[{"ref":"VLAN-01","tag":30,"isolated":true,"segment":"SEGMENT-A"}]},
+    "current":{"observed_at":1799999990,"complete":false,"items":[]},
+    "expected":{"state":"unknown","reason":"incomplete_snapshot"}
+  },
+  {
+    "name":"isolation changes with tag unchanged",
+    "source":"vlans",
+    "previous":{"observed_at":1799999700,"complete":true,"items":[{"ref":"VLAN-01","tag":30,"isolated":true,"segment":"SEGMENT-A"}]},
+    "current":{"observed_at":1799999990,"complete":true,"items":[{"ref":"VLAN-01","tag":30,"isolated":false,"segment":"SEGMENT-A"}]},
+    "expected":{"state":"observed","kind":"vlan_drift","count":1}
+  },
+  {
+    "name":"fresh VLAN snapshot arrives out of order",
+    "source":"vlans",
+    "previous":{"observed_at":1799999990,"complete":true,"items":[]},
+    "current":{"observed_at":1799999900,"complete":true,"items":[]},
+    "expected":{"state":"unknown","reason":"incomparable_snapshots"}
+  }
+]

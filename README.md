@@ -264,3 +264,12 @@ firewalla-mcp/
 ## License
 
 MIT — see [LICENSE](LICENSE)
+
+## Local Firewalla health sampler
+
+The optional M4 sampler records appliance control-process health in private local
+SQLite and reads Homelab Observer's cached context. The dedicated M4 provider runs under the existing credential owner and exposes
+one health-only local socket after attended identity qualification. Review the [Operator Guide](docs/SAMPLER-OPERATOR-GUIDE.md) and
+[Operations Quick Reference](docs/SAMPLER-QUICK-REFERENCE.md) before installing
+the LaunchAgent. The [task contract](docs/SAMPLER-CONTRACT.md) records the
+qualification of the current M4 installation.
