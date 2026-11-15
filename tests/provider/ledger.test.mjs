@@ -77,3 +77,15 @@ test('canceling a spacing wait still detects a memory breach', async () => {
   controller.abort();
   await assert.rejects(collection, state.RestartRequired);
 });
+
+test('a successful read above the RSS cap cannot advance the durable observation', async () => {
+  let confirmed = 0;
+  const ledger = { view: () => ({ lastRead: null }), confirmObservation: () => { confirmed++; } };
+  const signal = new AbortController().signal;
+  const check = state.monotonicDeadline(signal, 9_000);
+  const read = async () => ({ timestamp: '2027-01-15T07:59:59.000Z' });
+  let checks = 0;
+  await assert.rejects(state.collectObservation(read, ledger, signal, check, () => ++checks === 1),
+    state.RestartRequired);
+  assert.equal(confirmed, 0);
+});

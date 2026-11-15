@@ -94,9 +94,11 @@ checks a lock range specific to the pending reservation.
 The independent review of `9afb771088c8062f17e6617e4a388e308850b71f` found two
 remaining deadline edge cases. The final correction checks a monotonic
 deadline immediately before upstream dispatch and checks RSS even when
-the spacing wait is canceled.
+the spacing wait is canceled. The pre-commit RSS guard prevents an
+over-budget sample from advancing the replay watermark or shortening login
+backoff.
 
-**PASS, corrected fixture scope.** Twenty-five Node tests, 35 Python tests,
+**PASS, corrected fixture scope.** Twenty-six Node tests, 35 Python tests,
 the native boot-directory fixture, Clang analysis and both launchd manifest
 checks passed on the M4. With the final Node flags, three runs peaked at
 64.7 MiB provider RSS and 18.9 ms of CPU over four fictional encrypted reads.

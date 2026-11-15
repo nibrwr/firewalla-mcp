@@ -89,6 +89,7 @@ export async function collectObservation(read, ledger, signal, check, memoryOk =
     check();
     await waitForRead(ledger, signal);
     const state = await read(signal, check);
+    if (!memoryOk()) throw new RestartRequired();
     check();
     const cpu = process.cpuUsage(cpuStart);
     if (cpu.user + cpu.system > MAX_PROVIDER_CPU_US) throw new ProviderError('resource_limit');
