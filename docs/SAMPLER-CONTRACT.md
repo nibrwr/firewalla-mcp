@@ -52,14 +52,23 @@ and uses persisted reservations for both reads and authentication. Production
 enrollment enters the protected values only in the credential owner's local
 terminal.
 
-**PASS, fixture scope.** Native M4 build and manifest lint. Provider tests used
+**PASS, fixture scope.** M4 native build, Clang static analysis and manifest lint. Provider tests used
 real Darwin peer credentials and a temporary ACL, bounded bodies, a wrong UID,
 an invalid request, concurrency, timeout, SDK crypto with synthetic keys, and
 read and replay rules across reopening. The Python suite includes the sampler's
 state and recovery checks and hidden enrollment behavior. A real local socket
 fixture passed two cross-process sampler reads with both stores reopened and
 recorded the expected control-process restart. The examples use synthetic
-targets and credentials.
+targets and credentials. A process using the pinned SDK and four fictional
+encrypted reads peaked at 66.9 MiB RSS and took 10.72 ms of measured CPU for
+those four calls. This excludes live TLS and actual appliance work. The prior
+sampler fixture peaked at 26.9 MiB RSS. Production provider and sampler limits
+still require measurement together.
+
+**BLOCKED, independent review.** Automatic approval review rejected the
+independent Codex CLI review because it could send the private committed diff
+to the Codex service. Local revision review and the native analyzer ran.
+Independent review of the private revision remains an activation gate.
 
 **BLOCKED, production.** Administrator authorization was unavailable for
 unattended credential-owner execution. The attended identity inputs and owner
