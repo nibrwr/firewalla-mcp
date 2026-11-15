@@ -66,8 +66,8 @@ export function makeReader({ identity, readCredentials, secure, ping, login, box
   let session;
   let lastSeen;
 
-  return async function readHealth(signal) {
-    signal.throwIfAborted();
+  return async function readHealth(signal, check = () => signal.throwIfAborted()) {
+    check();
     const credentials = readCredentials(!session);
     const { target } = credentials;
     if (!isPrivateTarget(target) || identityDigest(target) !== identity.targetDigest) {
@@ -77,13 +77,14 @@ export function makeReader({ identity, readCredentials, secure, ping, login, box
     if (!session) {
       secure.importKeyPairFromString(credentials.publicKey, credentials.privateKey);
       reserveAuth(clock());
-      const authorization = await login(signal);
+      check();
+      const authorization = await login(signal, check);
       const group = selectGroup(authorization?.groups, identity.groupDigest);
       const token = authorization?.access_token;
       if (typeof token !== 'string' || !TOKEN.test(token)) throw new ProviderError('auth_unavailable');
       session = { token, group, ...keyMaterial(secure, group.key) };
     }
-    signal.throwIfAborted();
+    check();
     const { token, group, key, rotatedAt } = session;
     const command = ping(group.eid);
     const requestId = command?.message?.obj?.id;
@@ -91,7 +92,7 @@ export function makeReader({ identity, readCredentials, secure, ping, login, box
       throw new ProviderError('configuration');
     }
     await reserveRead(signal);
-    signal.throwIfAborted();
+    check();
     const body = {
       timestamp: Math.floor(clock() / 1000),
       message: secure.aesEncrypt(JSON.stringify(command), key),
@@ -100,7 +101,8 @@ export function makeReader({ identity, readCredentials, secure, ping, login, box
     let response;
     try {
       const url = new URL('http://' + target + ':8833/v1/encipher/message/' + group.id);
-      response = await box(url, body, token, signal);
+      check();
+      response = await box(url, body, token, signal, check);
     } catch (error) {
       if (error.code === 'source_denied') session = undefined;
       throw error;
@@ -125,7 +127,7 @@ export function makeReader({ identity, readCredentials, secure, ping, login, box
     } catch {
       throw new ProviderError('invalid_response');
     }
-    signal.throwIfAborted();
+    check();
     if (decrypted?.replyid !== requestId) throw new ProviderError('identity_unverified');
     if (decrypted.code !== 200) throw new ProviderError('source_unavailable');
     const output = health(decrypted.data, clock());

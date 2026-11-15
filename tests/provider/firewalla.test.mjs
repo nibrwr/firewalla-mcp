@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { makeReader, identityDigest } from '../../provider/firewalla.mjs';
-import { ProviderError } from '../../provider/state.mjs';
+import { monotonicDeadline, ProviderError } from '../../provider/state.mjs';
 
 const clock = 1_800_000_000_000;
 const address = '192.168.255.3'; // Fictional private address; intercepted by the test.
@@ -15,7 +15,8 @@ const group = {
 };
 const answer = { code: 200, data: { uptime: 904.5, timestamp: '2027-01-15T07:59:59.000Z' } };
 
-function fixture({ groups = [group], host = address, response = answer, rejected, delay = 0 } = {}) {
+function fixture({ groups = [group], host = address, response = answer, rejected, delay = 0,
+  reserveDuration = 0 } = {}) {
   const calls = [];
   let ticks = 0;
   let current = clock;
@@ -51,10 +52,13 @@ function fixture({ groups = [group], host = address, response = answer, rejected
       return { message: JSON.stringify({ replyid: JSON.parse(body.message).message.obj.id, ...out }) };
     },
     reserveAuth: () => calls.push('reserve-auth'),
-    reserveRead: async () => { if (delay) calls.push(['reserve-read', current]); },
+    reserveRead: async () => {
+      if (delay || reserveDuration) calls.push(['reserve-read', current]);
+      current += reserveDuration;
+    },
     clock: () => current,
   });
-  return { reader, calls };
+  return { reader, calls, now: () => current };
 }
 
 test('selects only the unique pinned group and its exact paired key, then reuses the session', async () => {
@@ -121,4 +125,13 @@ test('the LAN reservation starts after slow authentication and before dispatch',
   const { reader, calls } = fixture({ delay: 4000 });
   await reader(new AbortController().signal);
   assert.deepEqual(calls, ['load', 'reserve-auth', 'cloud', ['reserve-read', clock + 4000], 'lan']);
+});
+
+test('a reservation that finishes after the deadline cannot dispatch', async () => {
+  const { reader, calls, now } = fixture({ delay: 8_990, reserveDuration: 15 });
+  const signal = new AbortController().signal;
+  const check = monotonicDeadline(signal, 9_000, now);
+  await assert.rejects(reader(signal, check), { code: 'timeout' });
+  assert.equal(signal.aborted, false);
+  assert.deepEqual(calls, ['load', 'reserve-auth', 'cloud', ['reserve-read', clock + 8_990]]);
 });

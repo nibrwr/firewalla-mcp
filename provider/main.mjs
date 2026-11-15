@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { makeReader } from './firewalla.mjs';
 import { loginWithDeadline, readBox } from './network.mjs';
 import { loadPinnedSdk } from './sdk.mjs';
-import { collectObservation, openLedger, privateDir, privateRead, PROVIDER_DEADLINE_MS,
+import { collectObservation, monotonicDeadline, openLedger, privateDir, privateRead, PROVIDER_DEADLINE_MS,
   ProviderError, reserveScheduled, viewLedger } from './state.mjs';
 import { safeCode, serve } from './socket.mjs';
 
@@ -87,15 +87,15 @@ async function run(action) {
     const sdk = await loadPinnedSdk();
     const reader = makeReader({
       identity: pin, readCredentials: credentials, secure: sdk.secure, ping: sdk.ping,
-      login: (signal) => loginWithDeadline(sdk.auth, signal), box: readBox,
+      login: (signal, check) => loginWithDeadline(sdk.auth, signal, check), box: readBox,
       reserveAuth: ledger.reserveAuth, reserveRead: (signal) => reserveScheduled(ledger, signal),
     });
 
-    const collect = (signal) => collectObservation(reader, ledger, signal);
+    const collect = (signal, check) => collectObservation(reader, ledger, signal, check);
 
     if (action === 'verify') {
       const timer = AbortSignal.timeout(PROVIDER_DEADLINE_MS);
-      const verified = await collect(timer);
+      const verified = await collect(timer, monotonicDeadline(timer, PROVIDER_DEADLINE_MS));
       return { identity: verified.identity, state: 'observed' };
     }
 

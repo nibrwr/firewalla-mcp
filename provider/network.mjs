@@ -30,13 +30,13 @@ export async function boundedJson(response, signal) {
   }
 }
 
-async function post(url, body, signal, token) {
-  signal.throwIfAborted();
+async function post(url, body, signal, check, token) {
   const headers = {
     'Content-Type': 'application/json', 'Accept-Encoding': 'identity',
     'Content-Length': Buffer.byteLength(body),
   };
   if (token !== undefined) headers.Authorization = 'Bearer ' + token;
+  check();
   return new Promise((resolve, reject) => {
     const request = (url.protocol === 'https:' ? https : http)(url, {
       method: 'POST', headers, agent: false, signal, maxHeaderSize: 8192,
@@ -60,24 +60,24 @@ async function post(url, body, signal, token) {
 
 // This adapter is imported only by the pinned SDK's cloud-login module.
 export default async function cloudFetch(url, options) {
-  const signal = cloudDeadline.getStore();
-  if (!signal || url !== LOGIN || options?.method !== 'POST'
+  const deadline = cloudDeadline.getStore();
+  if (!deadline || url !== LOGIN || options?.method !== 'POST'
       || typeof options.body !== 'string' || Buffer.byteLength(options.body) > MAX_RESPONSE) {
     throw new ProviderError('configuration');
   }
-  const value = await post(new URL(LOGIN), options.body, signal);
+  const value = await post(new URL(LOGIN), options.body, deadline.signal, deadline.check);
   return { json: async () => value };
 }
 
-export function loginWithDeadline(sdk, signal) {
-  return cloudDeadline.run(signal, () => sdk.login());
+export function loginWithDeadline(sdk, signal, check = () => signal.throwIfAborted()) {
+  return cloudDeadline.run({ signal, check }, () => sdk.login());
 }
 
-export function readBox(url, body, token, signal) {
+export function readBox(url, body, token, signal, check = () => signal.throwIfAborted()) {
   if (url.protocol !== 'http:' || !isPrivateTarget(url.hostname) || url.port !== '8833'
       || !/^\/v1\/encipher\/message\/[A-Za-z0-9_-]{1,128}$/.test(url.pathname)
       || url.search || url.hash || url.username || url.password) {
     throw new ProviderError('configuration');
   }
-  return post(url, JSON.stringify(body), signal, token);
+  return post(url, JSON.stringify(body), signal, check, token);
 }

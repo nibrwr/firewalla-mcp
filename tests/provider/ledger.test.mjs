@@ -58,8 +58,22 @@ test('an upstream failure that crosses the RSS cap requests immediate recovery',
   const signal = new AbortController().signal;
   const error = new state.ProviderError('source_unavailable');
   const read = async () => { throw error; };
+  const check = state.monotonicDeadline(signal, 9_000);
   let checks = 0;
-  await assert.rejects(state.collectObservation(read, ledger, signal, () => ++checks === 1),
+  await assert.rejects(state.collectObservation(read, ledger, signal, check, () => ++checks === 1),
     state.RestartRequired);
-  await assert.rejects(state.collectObservation(read, ledger, signal, () => true), (failure) => failure === error);
+  await assert.rejects(state.collectObservation(read, ledger, signal, check, () => true),
+    (failure) => failure === error);
+});
+
+test('canceling a spacing wait still detects a memory breach', async () => {
+  const lastRead = Date.now() - 296_000;
+  const ledger = { view: () => ({ lastRead }), confirmObservation: assert.fail };
+  const controller = new AbortController();
+  const check = state.monotonicDeadline(controller.signal, 9_000);
+  let checks = 0;
+  const collection = state.collectObservation(assert.fail, ledger,
+    controller.signal, check, () => ++checks === 1);
+  controller.abort();
+  await assert.rejects(collection, state.RestartRequired);
 });

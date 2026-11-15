@@ -1,6 +1,6 @@
 import { chmodSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { MAX_RESPONSE, PROVIDER_DEADLINE_MS, ProviderError, RestartRequired } from './state.mjs';
+import { MAX_RESPONSE, monotonicDeadline, PROVIDER_DEADLINE_MS, ProviderError, RestartRequired } from './state.mjs';
 
 export const HEALTH_REQUEST = '{"schema_version":1,"operation":"get_network_status"}\n';
 const request = Buffer.from(HEALTH_REQUEST);
@@ -30,6 +30,7 @@ export async function serve({ path, uid, native, collect, deadlineMs = PROVIDER_
     }
 
     const controller = new AbortController();
+    const check = monotonicDeadline(controller.signal, deadlineMs);
     let handling = false;
     let bytes = 0;
     active = { peer, controller };
@@ -69,8 +70,9 @@ export async function serve({ path, uid, native, collect, deadlineMs = PROVIDER_
       }
       handling = true;
       try {
-        const result = await collect(controller.signal);
-        if (!controller.signal.aborted) reply(result);
+        const result = await collect(controller.signal, check);
+        check();
+        reply(result);
       } catch (error) {
         if (error instanceof RestartRequired) {
           draining = true;

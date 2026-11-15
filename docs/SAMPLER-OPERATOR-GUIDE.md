@@ -55,7 +55,8 @@ All response bodies are capped at 16 KiB before JSON parsing. The provider
 returns a fixed error code on failure. Both sides enforce their own persisted
 read spacing. The provider can wait for the next eligible dispatch within its
 request deadline. It reserves its LAN read after cloud authentication,
-immediately before dispatch. It makes one encrypted LAN request for an
+immediately before dispatch. A monotonic deadline check after the reservation
+prevents a late dispatch if storage stalls. It makes one encrypted LAN request for an
 eligible sample and no upstream request on rejected socket input. The vendor
 LAN protocol protects the payload with the paired key over HTTP. The LAN
 transport remains an operator trust boundary.

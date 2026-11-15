@@ -23,6 +23,14 @@ export class RestartRequired extends ProviderError {
   }
 }
 
+export function monotonicDeadline(signal, duration, clock = () => performance.now()) {
+  const expires = clock() + duration;
+  return () => {
+    if (clock() >= expires) throw new ProviderError('timeout');
+    signal.throwIfAborted();
+  };
+}
+
 export function privateDir(path, uid = process.getuid()) {
   const info = lstatSync(path);
   if (!info.isDirectory() || info.uid !== uid || (info.mode & 0o777) !== 0o700) {
@@ -74,17 +82,22 @@ function withinMemory() {
     && process.resourceUsage().maxRSS * 1024 <= MAX_PROVIDER_RSS;
 }
 
-export async function collectObservation(read, ledger, signal, memoryOk = withinMemory) {
+export async function collectObservation(read, ledger, signal, check, memoryOk = withinMemory) {
   const cpuStart = process.cpuUsage();
   if (!memoryOk()) throw new RestartRequired();
-  await waitForRead(ledger, signal);
-  const state = await read(signal).finally(() => {
+  try {
+    check();
+    await waitForRead(ledger, signal);
+    const state = await read(signal, check);
+    check();
+    const cpu = process.cpuUsage(cpuStart);
+    if (cpu.user + cpu.system > MAX_PROVIDER_CPU_US) throw new ProviderError('resource_limit');
+    ledger.confirmObservation(Date.parse(state.timestamp));
+    check();
+    return state;
+  } finally {
     if (!memoryOk()) throw new RestartRequired();
-  });
-  const cpu = process.cpuUsage(cpuStart);
-  if (cpu.user + cpu.system > MAX_PROVIDER_CPU_US) throw new ProviderError('resource_limit');
-  ledger.confirmObservation(Date.parse(state.timestamp));
-  return state;
+  }
 }
 
 function currentLedger(path) {
