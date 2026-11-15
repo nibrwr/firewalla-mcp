@@ -1,6 +1,6 @@
 import { chmodSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { MAX_RESPONSE, ProviderError } from './state.mjs';
+import { MAX_RESPONSE, ProviderError, RestartRequired } from './state.mjs';
 
 export const HEALTH_REQUEST = '{"schema_version":1,"operation":"get_network_status"}\n';
 const request = Buffer.from(HEALTH_REQUEST);
@@ -12,14 +12,15 @@ export function safeCode(error) {
   return error instanceof ProviderError && ERRORS.has(error.code) ? error.code : 'source_unavailable';
 }
 
-export async function serve({ path, uid, native, collect, deadlineMs = 9_000 }) {
+export async function serve({ path, uid, native, collect, deadlineMs = 9_000, onRestart = () => {} }) {
   let active;
+  let draining = false;
   const server = createServer({ allowHalfOpen: true }, (peer) => {
     peer.on('error', () => peer.destroy());
     try {
       // Node does not publish peer credentials. The pinned Darwin runtime exposes
       // the accepted pipe descriptor here, which the native shim checks.
-      if (active || native.peerUid(peer._handle?.fd) !== uid) {
+      if (active || draining || native.peerUid(peer._handle?.fd) !== uid) {
         peer.destroy();
         return;
       }
@@ -71,6 +72,14 @@ export async function serve({ path, uid, native, collect, deadlineMs = 9_000 }) 
         const result = await collect(controller.signal);
         if (!controller.signal.aborted) reply(result);
       } catch (error) {
+        if (error instanceof RestartRequired) {
+          draining = true;
+          if (peer.destroyed) onRestart();
+          else {
+            peer.once('close', onRestart);
+            if (controller.signal.aborted) peer.destroy();
+          }
+        }
         if (!controller.signal.aborted) reply({ schema_version: 1, error: safeCode(error) });
       } finally {
         release();

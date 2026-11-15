@@ -37,5 +37,16 @@
       {"ref":"VLAN-01","tag":20,"isolated":true,"segment":"SEGMENT-01"}
     ]},
     "expected":{"state":"observed","kind":"vlan_drift","count":1}
+  },
+  {
+    "name":"the same alarm cannot have two different event times",
+    "source":"alarms",
+    "previous":{"observed_at":1799999700,"complete":true,"items":[
+      {"ref":"ALARM-03","severity":"critical","event_at":1799999660}
+    ]},
+    "current":{"observed_at":1799999990,"complete":true,"items":[
+      {"ref":"ALARM-03","severity":"critical","event_at":1799999780}
+    ]},
+    "expected":{"state":"unknown","reason":"incomparable_snapshots"}
   }
 ]

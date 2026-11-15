@@ -43,7 +43,8 @@ async function post(url, body, signal, token) {
     }, (response) => {
       const status = response.statusCode;
       if (status !== 200) {
-        reject(new ProviderError(status === 401 || status === 403 ? 'source_denied' : 'source_unavailable'));
+        const rejected = token !== undefined || status === 401 || status === 403;
+        reject(new ProviderError(rejected ? 'source_denied' : 'source_unavailable'));
         response.destroy();
         return;
       }

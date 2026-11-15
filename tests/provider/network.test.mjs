@@ -63,11 +63,38 @@ test('real pinned crypto authenticates a fictional group and emits only the heal
       calls += 1;
       const opened = JSON.parse(secure.aesDecrypt(body.message, key));
       assert.equal(opened.message.obj.data.item, 'ping');
-      return { message: secure.aesEncrypt(JSON.stringify({ code: 200, data: { timestamp: at, uptime: 500 } }), key) };
+      return { message: secure.aesEncrypt(JSON.stringify({
+        code: 200, replyid: opened.message.obj.id, data: { timestamp: at, uptime: 500 },
+      }), key) };
     },
   });
   assert.deepEqual(await read(new AbortController().signal), {
     schema_version: 1, operation: 'get_network_status', identity: 'verified', uptime: 500, timestamp: at,
   });
   assert.equal(calls, 1);
+});
+
+test('a change in a transitive SDK module invalidates the tree pin', async () => {
+  const { createHash } = await import('node:crypto');
+  const { join } = await import('node:path');
+  const { mkdirSync, mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { verifiedModules } = await import('../../provider/sdk.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'fwh-sdk-fixture-'));
+  try {
+    const entries = [
+      ['lib/esm/imported.js', 'export const value = 1;'],
+      ['lib/esm/index.js', "export {value} from './imported.js';"],
+      ['package.json', '{"type":"module"}'],
+    ];
+    const hash = (data) => createHash('sha256').update(data).digest('hex');
+    const expected = hash(JSON.stringify(entries.map(([path, source]) => [path, hash(source)])));
+    mkdirSync(join(root, 'lib/esm'), { recursive: true });
+    for (const [path, source] of entries) writeFileSync(join(root, path), source);
+    assert.equal(verifiedModules(root, expected, process.getuid()).size, 2);
+    writeFileSync(join(root, 'lib/esm/imported.js'), 'export const value = 2;');
+    assert.throws(() => verifiedModules(root, expected, process.getuid()), { code: 'configuration' });
+  } finally {
+    rmSync(root, { recursive: true });
+  }
 });

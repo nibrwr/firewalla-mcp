@@ -42,13 +42,33 @@ class Busy(Exception):
     pass
 
 
-def private_file(path, *, limit=FILE_CAP):
-    info = path.lstat()
+def _private_file(info, limit):
     if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
             or stat.S_IMODE(info.st_mode) != 0o600 or info.st_uid != os.getuid()
             or info.st_size > limit):
         raise UnsafeState
     return info
+
+
+def private_file(path, *, limit=FILE_CAP):
+    return _private_file(path.lstat(), limit)
+
+
+def writer_active(directory):
+    """Check the established lock without creating or changing state."""
+    try:
+        fd = os.open(directory / LOCK_NAME, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return False
+    try:
+        _private_file(os.fstat(fd), 0)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        return False
+    finally:
+        os.close(fd)
 
 
 def state_directory(directory, *, create):
@@ -77,7 +97,7 @@ def exclusive(directory):
     path = directory / LOCK_NAME
     fd = os.open(path, os.O_NOFOLLOW | os.O_CREAT | os.O_NONBLOCK | os.O_RDWR, 0o600)
     try:
-        private_file(path, limit=0)
+        _private_file(os.fstat(fd), 0)
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:

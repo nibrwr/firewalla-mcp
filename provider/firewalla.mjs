@@ -62,7 +62,7 @@ function health(data, now) {
   return { schema_version: 1, operation: 'get_network_status', identity: 'verified', timestamp, uptime };
 }
 
-export function makeReader({ identity, readCredentials, secure, ping, login, box, reserveAuth, confirmAuth = () => {}, clock = Date.now }) {
+export function makeReader({ identity, readCredentials, secure, ping, login, box, reserveAuth, reserveRead = () => {}, clock = Date.now }) {
   let session;
   let lastSeen;
 
@@ -85,9 +85,16 @@ export function makeReader({ identity, readCredentials, secure, ping, login, box
     }
     signal.throwIfAborted();
     const { token, group, key, rotatedAt } = session;
+    const command = ping(group.eid);
+    const requestId = command?.message?.obj?.id;
+    if (typeof requestId !== 'string' || !GROUP_ID.test(requestId)) {
+      throw new ProviderError('configuration');
+    }
+    await reserveRead(signal);
+    signal.throwIfAborted();
     const body = {
       timestamp: Math.floor(clock() / 1000),
-      message: secure.aesEncrypt(JSON.stringify(ping(group.eid)), key),
+      message: secure.aesEncrypt(JSON.stringify(command), key),
     };
     if (rotatedAt !== undefined) body.rkeyts = rotatedAt;
     let response;
@@ -98,7 +105,12 @@ export function makeReader({ identity, readCredentials, secure, ping, login, box
       if (error.code === 'source_denied') session = undefined;
       throw error;
     }
-    if (response?.error || typeof response?.message !== 'string') {
+    if (response?.error) {
+      session = undefined;
+      throw new ProviderError('source_denied');
+    }
+    if (typeof response?.message !== 'string') {
+      session = undefined;
       throw new ProviderError('invalid_response');
     }
     let decrypted;
@@ -111,14 +123,14 @@ export function makeReader({ identity, readCredentials, secure, ping, login, box
       throw new ProviderError('invalid_response');
     }
     signal.throwIfAborted();
-    if (decrypted?.code !== 200) throw new ProviderError('invalid_response');
+    if (decrypted?.code !== 200) {
+      session = undefined;
+      throw new ProviderError('source_denied');
+    }
+    if (decrypted.replyid !== requestId) throw new ProviderError('identity_unverified');
     const output = health(decrypted.data, clock());
     const seen = Date.parse(output.timestamp);
     if (lastSeen !== undefined && seen <= lastSeen) throw new ProviderError('replayed');
-    if (!session.verified) {
-      confirmAuth();
-      session.verified = true;
-    }
     lastSeen = seen;
     return output;
   };

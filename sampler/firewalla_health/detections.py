@@ -69,6 +69,8 @@ def _snapshot(source, data, now):
 
 def _count(source, previous, old, new):
     if source == "alarms":
+        if any(old[ref][1] != new[ref][1] for ref in old.keys() & new.keys()):
+            raise CoverageError("incomparable_snapshots")
         # The fixture windows must overlap. IDs suppress repeats within these two views.
         return sum(
             ref not in old and severity in ("high", "critical") and event > previous

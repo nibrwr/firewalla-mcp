@@ -24,7 +24,7 @@ The credential owner can read the provider's bounded attempt counters without
 taking a sample.
 
 ```sh
-sudo -u hermes /opt/hermes-homelab/node/bin/node --max-old-space-size=24 \
+sudo -u hermes /opt/hermes-homelab/node/bin/node --jitless --max-semi-space-size=1 --max-old-space-size=24 \
   /opt/firewalla-health-provider/main.mjs counts
 ```
 
@@ -50,8 +50,9 @@ launchctl print "$domain/$label"
 
 Proceed when the job is absent. Verify that `plutil -extract Label raw -o - "$agent"` returns the exact label before removing that plist. Move the sampler's `program` directory out of the execution path or remove that verified program copy. Keep `state` for recovery evidence subject to the retention policy. Confirm the existing connector's health read and two-tool inventory, Observer's four responding targets, and the disabled state of the historical collector and bridge.
 
-The provider can be stopped independently with the named system job. An
-authorized restart uses `sudo launchctl kickstart -k system/com.nibrwr.firewalla-health-provider`.
+The provider can be stopped independently with the named system job. Its boot
+executable restores only the new runtime directory before running as
+`hermes`. An authorized restart uses `sudo launchctl kickstart -k system/com.nibrwr.firewalla-health-provider`.
 For rollback, disable and boot out that exact label. Verify it is absent and the
 plist contains the exact provider label before removing its newly installed
 plist. Remove the provider program copy from `/opt/firewalla-health-provider`.

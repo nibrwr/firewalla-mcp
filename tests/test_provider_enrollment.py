@@ -41,3 +41,20 @@ class EnrollmentTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 attest.enroll(os.getuid() + 1, hidden=lambda _: next(answers))
             self.assertEqual(list(Path(folder).iterdir()), [])
+
+    def test_disk_write_failure_leaves_no_pin_and_admits_one_fresh_enrollment(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(attest, "STATE", Path(folder)), patch.object(
+            attest, "protected_target", return_value="192.168.255.6"
+        ), patch("pwd.getpwuid") as lookup:
+            lookup.return_value.pw_uid = os.getuid() + 1
+
+            def enroll():
+                entries = iter(["fixture-group-reference", "192.168.255.6"])
+                attest.enroll(os.getuid() + 1, hidden=lambda _: next(entries))
+
+            with patch.object(attest.os, "fsync", side_effect=OSError("fixture disk full")):
+                with self.assertRaises(OSError):
+                    enroll()
+            self.assertFalse((Path(folder) / "identity.json").exists())
+            enroll()
+            self.assertTrue((Path(folder) / "identity.json").is_file())

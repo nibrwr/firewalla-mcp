@@ -14,6 +14,12 @@ export class ProviderError extends Error {
   }
 }
 
+export class RestartRequired extends ProviderError {
+  constructor() {
+    super('resource_limit');
+  }
+}
+
 export function privateDir(path, uid = process.getuid()) {
   const info = lstatSync(path);
   if (!info.isDirectory() || info.uid !== uid || (info.mode & 0o777) !== 0o700) {
@@ -21,12 +27,12 @@ export function privateDir(path, uid = process.getuid()) {
   }
 }
 
-export function privateRead(path, limit) {
+export function privateRead(path, limit, { uid = process.getuid(), mode = 0o600 } = {}) {
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const info = fstatSync(fd);
-    if (!info.isFile() || info.uid !== process.getuid() || info.nlink !== 1
-        || (info.mode & 0o777) !== 0o600 || info.size > limit) {
+    if (!info.isFile() || info.uid !== uid || info.nlink !== 1
+        || (info.mode & 0o777) !== mode || info.size > limit) {
       throw new ProviderError('configuration');
     }
     const buffer = Buffer.alloc(limit + 1);
@@ -43,14 +49,20 @@ export function privateRead(path, limit) {
   }
 }
 
-export async function reserveScheduled(ledger, signal, clock = Date.now) {
+export async function waitForRead(ledger, signal, clock = Date.now) {
+  signal.throwIfAborted();
   const now = clock();
   const { lastRead } = ledger.view();
-  if (lastRead !== null && now >= lastRead) {
+  if (lastRead !== null) {
     const early = lastRead + INTERVAL_MS - now;
-    if (early > 0 && early <= 2000) await sleep(early + 1, undefined, { signal });
+    if (now < lastRead || early > 2000) throw new ProviderError('read_limit');
+    if (early > 0) await sleep(early + 1, undefined, { signal });
   }
   signal.throwIfAborted();
+}
+
+export async function reserveScheduled(ledger, signal, clock = Date.now) {
+  await waitForRead(ledger, signal, clock);
   ledger.reserveRead(clock());
 }
 
@@ -140,25 +152,17 @@ export function openLedger(dir) {
   return {
     reserveRead: (now) => reserve(now, 'lastRead', 'attempts', INTERVAL_MS, 'read_limit'),
     reserveAuth: (now) => reserve(now, 'lastAuth', 'authentications', AUTH_BACKOFF_MS, 'auth_backoff'),
-    confirmAuth() {
-      const record = currentLedger(path);
-      if (record.lastAuth === null) throw new ProviderError('storage_unavailable');
-      if (!record.lastAuthVerified) {
-        record.lastAuthVerified = true;
-        try {
-          persist(dir, path, pending, record);
-        } catch {
-          throw new ProviderError('storage_unavailable');
-        }
-      }
-    },
     confirmObservation(seen) {
       const record = currentLedger(path);
       if (!Number.isSafeInteger(seen) || seen < 0
           || (record.lastObservation !== null && seen <= record.lastObservation)) {
         throw new ProviderError('replayed');
       }
+      if (record.lastAuth === null || record.lastRead === null) {
+        throw new ProviderError('storage_unavailable');
+      }
       record.lastObservation = seen;
+      record.lastAuthVerified = true;
       try {
         persist(dir, path, pending, record);
       } catch {

@@ -9,21 +9,23 @@ Install from the reviewed PR #2 revision. The provider uses the installed Node
 Python with a working SQLite `hard_heap_limit`.
 
 The credential-owner job is `system/com.nibrwr.firewalla-health-provider`. It
-runs as `hermes` and listens on `/var/run/firewalla-health/status.sock`. The
-one-shot sampler is `com.nibrwr.firewalla-security-sampler` in the approved
+uses a small root-owned boot executable to prepare its own socket directory
+and drop to `hermes` before starting Node. The provider listens on
+`/var/run/firewalla-health/status.sock`. The one-shot sampler is `com.nibrwr.firewalla-security-sampler` in the approved
 login account's GUI domain. The current system state is in the
 [qualification record](SAMPLER-CONTRACT.md).
 
 Enroll the intended physical appliance only after independently confirming the
 paired-group reference and LAN IPv4 address. The hidden prompt compares the
 address to the existing protected target and keeps only fingerprints in new
-provider state. A one-shot authenticated read must then match exactly one cloud
-group and exactly one key for that pairing, and decrypt a fresh response from
-the pinned LAN target. Use the provider's fixed success result as evidence.
+provider state. A one-shot authenticated read must match exactly one cloud group and one
+key for that pairing. It checks the encrypted reply ID against the current ping
+and checks the source timestamp before accepting identity. Use the provider's fixed success result as evidence.
 The credential owner retains the existing key files. The provider reuses its
-authenticated session between reads. A failed or interrupted login suppresses
-another attempt for 15 minutes. A prior verified read permits reauthentication
-after five minutes.
+authenticated session between reads. A LAN protocol rejection clears the
+cached session for the next eligible request. A failed or interrupted login
+suppresses another attempt for 15 minutes. A new login receives the shorter
+five-minute backoff only when its observation survives the durable replay check.
 
 The socket allows the designated sampler account to connect through a
 per-account ACL. The provider checks the connecting account with Darwin peer
@@ -48,7 +50,8 @@ number of seconds. The sampler's deadline is ten seconds. The provider's
 deadline is nine seconds, covering socket intake and any cloud and LAN work.
 All response bodies are capped at 16 KiB before JSON parsing. The provider
 returns a fixed error code on failure. Both sides enforce their own persisted
-read spacing. The provider makes one encrypted LAN health request for an
+read spacing. The provider reserves its LAN read after cloud authentication,
+immediately before dispatch. It makes one encrypted LAN request for an
 eligible sample and no upstream request on rejected socket input. The vendor
 LAN protocol protects the payload with the paired key over HTTP. The LAN
 transport remains an operator trust boundary.
@@ -79,7 +82,8 @@ The owner-only state directory is `~/Library/Application Support/Firewalla Healt
 Only one request is in flight. The sampler waits for the next eligible slot before another read and reserves at most 288 attempts over a trailing day. It allows up to ten seconds of scheduler jitter when an invocation would read just before the five-minute minimum spacing. A storage write failure before reservation prevents a source call. A failed write after the call leaves a pending reservation that is handled as interrupted on restart.
 
 The job discards stdout and stderr, uses no child processes, and applies a one-second soft and two-second hard process CPU limit. The sampler checks peak RSS against 32 MiB. The provider checks peak RSS
-against 68 MiB and allows one second of CPU per request. These are process
+against 68 MiB and allows one second of CPU per request. An RSS breach drains
+the listener so launchd can restart the process. These are process
 guards rather than macOS hard RSS limits. The provider's private ledger uses a
 small fixed-size record with atomic replacement. It adds no log store. Confirm
 combined incremental RSS within 100 MiB, CPU within 1% of one core over a
@@ -104,7 +108,8 @@ bundle="$(mktemp -d /private/tmp/firewalla-provider.XXXXXXXX)"
 
 The following steps require local administrator authentication. The
 administrator is the logged-in sampler account for these examples. They create
-only the new provider installation, private state, and socket directory. Run
+only the new provider installation and private state. The boot executable
+prepares the socket directory during both supervised and launchd startup. Run
 each stage from the reviewed checkout and stop on a failed step.
 
 ```sh
@@ -114,7 +119,6 @@ provider_state=/var/db/firewalla-health-provider
 socket_dir=/var/run/firewalla-health
 provider_plist=/Library/LaunchDaemons/com.nibrwr.firewalla-health-provider.plist
 sampler_uid="$(id -u)"
-sampler_user="$(id -un)"
 for path in "$provider_dir" "$provider_state" "$socket_dir" "$provider_plist"; do
     if [ -e "$path" ] || [ -L "$path" ]; then
         printf '%s\n' 'Provider path already exists. Inspect before continuing.'
@@ -125,11 +129,13 @@ sudo /bin/mkdir -m 755 "$provider_dir"
 for file in attest.py firewalla.mjs main.mjs network.mjs peer.node sdk.mjs socket.mjs state.mjs; do
     sudo /usr/bin/install -o root -g wheel -m 644 "$bundle/$file" "$provider_dir/$file"
 done
-sudo /bin/mkdir -m 700 "$provider_state" "$socket_dir"
-sudo /usr/sbin/chown hermes "$provider_state" "$socket_dir"
-sudo /bin/chmod +a "user:$sampler_user allow search" "$socket_dir"
+sudo /usr/bin/install -o root -g wheel -m 755 "$bundle/boot" "$provider_dir/boot"
+printf '%s\n' "$sampler_uid" > "$bundle/sampler-uid"
+sudo /usr/bin/install -o root -g wheel -m 644 "$bundle/sampler-uid" "$provider_dir/sampler-uid"
+sudo /bin/mkdir -m 700 "$provider_state"
+sudo /usr/sbin/chown hermes "$provider_state"
 sudo -u hermes /usr/bin/python3 -E -s -B "$provider_dir/attest.py" "$sampler_uid"
-sudo -u hermes /opt/hermes-homelab/node/bin/node --max-old-space-size=24 "$provider_dir/main.mjs" verify
+sudo -u hermes /opt/hermes-homelab/node/bin/node --jitless --max-semi-space-size=1 --max-old-space-size=24 "$provider_dir/main.mjs" verify
 ```
 
 The final command must return `{"identity":"verified","state":"observed"}`.
@@ -138,26 +144,10 @@ blocks activation. It consumes a read reservation. Wait five minutes before
 another eligible query. An unverified login is subject to the longer backoff.
 Keep the raw group and address in the hidden prompt.
 
-Once exact identity passes, start `main.mjs serve` as `hermes` under local
-supervision. From the sampler account, confirm it can reach the socket through
-the existing sampler and that the provider rejects other input. Allow five
-minutes between actual health reads. Stop the foreground provider before
-loading the installed daemon. Its state lock and ledger survive the change.
-After supervised bounds and readback pass, install the exact reviewed manifest
-and bootstrap only the provider.
+## Stage the sampler and qualify the socket
 
-```sh
-sudo /usr/bin/install -o root -g wheel -m 644 "$bundle/provider.plist" "$provider_plist"
-sudo /bin/launchctl bootstrap system "$provider_plist"
-```
-
-## Install the sampler and measure production
-
-Proceed once the provider and permitted local account pass the health exchange.
-Confirm the sampler label and paths are unused and its existing fixture gates
-pass. Keep the sampler state under its dedicated private program root.
-
-From the reviewed checkout in a local terminal, create a new private program directory and materialize the manifest. A pre-existing directory or manifest requires an operator inspection before reinstallation. The example fails on existing paths.
+After identity passes, stage the sampler program as the intended login account.
+The same staged directory is used for the supervised sample and the schedule.
 
 ```sh
 set -eu
@@ -170,7 +160,41 @@ if [ -e "$sampler_dir" ] || [ -L "$sampler_dir" ] || [ -e "$agent" ] || [ -L "$a
 fi
 mkdir -m 700 "$sampler_dir"
 cp -R sampler "$sampler_dir/program"
-/opt/homebrew/bin/python3 -E -s -B - "$sampler_dir/program" "$agent" <<'PY'
+```
+
+After the earlier identity read is at least five minutes old, start the
+reviewed boot executable under supervision in a separate Terminal window.
+
+```sh
+sudo /opt/firewalla-health-provider/boot
+```
+
+The executable repairs only the new runtime directory, admits the configured
+account to search it, and drops administrator privileges before starting Node.
+In the sampler account's Terminal window, run the staged one-shot health
+sample and inspect its status.
+
+```sh
+/opt/homebrew/bin/python3 -E -s -B "$sampler_dir/program/firewalla-health.py" run
+/opt/homebrew/bin/python3 -E -s -B "$sampler_dir/program/firewalla-health.py" status
+```
+
+Require observed health and a durable reservation. Check admission from the
+permitted account and verify that unexpected input stops before LAN dispatch.
+Allow five minutes between actual health reads. Stop the foreground provider
+before loading the installed daemon. The private ledger and sampler history
+survive that transition.
+
+## Enable the provider and sampler schedules
+
+Proceed once the permitted local account passes the supervised exchange and
+the fixture, resource, and boundary gates pass. Use the exact reviewed provider
+manifest and the sampler program already staged above.
+
+```sh
+sudo /usr/bin/install -o root -g wheel -m 644 "$bundle/provider.plist" "$provider_plist"
+sudo /bin/launchctl bootstrap system "$provider_plist"
+/opt/homebrew/bin/python3 -E -s -B - "$sampler_dir/program" "$agent" <<'PYINSTALL'
 import plistlib
 import sys
 
@@ -179,7 +203,7 @@ with open("deploy/com.nibrwr.firewalla-security-sampler.plist.in", "rb") as sour
 manifest["ProgramArguments"][4] = sys.argv[1] + "/firewalla-health.py"
 with open(sys.argv[2], "xb") as target:
     plistlib.dump(manifest, target)
-PY
+PYINSTALL
 plutil -lint -- "$agent"
 launchctl bootstrap "gui/$(id -u)" "$agent"
 ```
@@ -194,9 +218,10 @@ paths and the historical disablements afterwards.
 
 A GUI LaunchAgent samples only while its login session is running. Logout
 stops collection and the next eligible invocation records any resulting gap.
-The provider is a system daemon, subject to boot readiness and the presence of
-its socket directory. Verify those after any host reboot. A controlled job
-restart does not establish host reboot recovery.
+The provider recreates its runtime directory and exact search ACL on launch.
+After a host reboot, verify daemon readiness and the socket, then log in for the
+GUI sampler. The directory recreation passed a fixture check. Host reboot recovery still needs
+live verification.
 
 Use the [Operations Quick Reference](SAMPLER-QUICK-REFERENCE.md) for daily inspection and rollback. Stop activation or roll back the new job on identity or permission drift, an unavailable local provider, repeated resource breaches, or degraded operation of the existing connector or Observer.
 

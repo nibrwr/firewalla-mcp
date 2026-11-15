@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { makeReader } from './firewalla.mjs';
 import { loginWithDeadline, readBox } from './network.mjs';
 import { loadPinnedSdk } from './sdk.mjs';
-import { openLedger, privateDir, privateRead, ProviderError, reserveScheduled, viewLedger } from './state.mjs';
+import { openLedger, privateDir, privateRead, ProviderError, reserveScheduled, RestartRequired, viewLedger, waitForRead } from './state.mjs';
 import { safeCode, serve } from './socket.mjs';
 
 const DIR = '/var/db/firewalla-health-provider';
@@ -16,10 +16,12 @@ const MAX_PROVIDER_RSS = 68 * 1024 * 1024;
 const MAX_PROVIDER_CPU_US = 1_000_000;
 
 function identity() {
+  const sampler = privateRead('/opt/firewalla-health-provider/sampler-uid', 11, { uid: 0, mode: 0o644 });
+  if (!/^[1-9][0-9]{0,9}\n$/.test(sampler)) throw new ProviderError('configuration');
   const pin = JSON.parse(privateRead(join(DIR, 'identity.json'), 1024));
   if (!pin || Object.keys(pin).length !== 4 || pin.schema_version !== 1
       || !Number.isSafeInteger(pin.samplerUid) || pin.samplerUid <= 0
-      || pin.samplerUid === process.getuid()
+      || pin.samplerUid === process.getuid() || pin.samplerUid !== Number(sampler)
       || ![pin.groupDigest, pin.targetDigest].every((text) =>
         typeof text === 'string' && /^[a-f0-9]{64}$/.test(text))) {
     throw new ProviderError('configuration');
@@ -93,19 +95,18 @@ async function run(action) {
     const reader = makeReader({
       identity: pin, readCredentials: credentials, secure: sdk.secure, ping: sdk.ping,
       login: (signal) => loginWithDeadline(sdk.auth, signal), box: readBox,
-      reserveAuth: ledger.reserveAuth, confirmAuth: ledger.confirmAuth,
+      reserveAuth: ledger.reserveAuth, reserveRead: (signal) => reserveScheduled(ledger, signal),
     });
 
     async function collect(signal) {
       const cpuStart = process.cpuUsage();
-      if (!withinMemory()) throw new ProviderError('resource_limit');
-      await reserveScheduled(ledger, signal);
+      if (!withinMemory()) throw new RestartRequired();
+      await waitForRead(ledger, signal);
       const state = await reader(signal);
-      ledger.confirmObservation(Date.parse(state.timestamp));
+      if (!withinMemory()) throw new RestartRequired();
       const cpu = process.cpuUsage(cpuStart);
-      if (!withinMemory() || cpu.user + cpu.system > MAX_PROVIDER_CPU_US) {
-        throw new ProviderError('resource_limit');
-      }
+      if (cpu.user + cpu.system > MAX_PROVIDER_CPU_US) throw new ProviderError('resource_limit');
+      ledger.confirmObservation(Date.parse(state.timestamp));
       return state;
     }
 
@@ -118,9 +119,13 @@ async function run(action) {
     privateDir(SOCKET_DIR);
     const path = join(SOCKET_DIR, 'status.sock');
     removeStaleSocket(path);
-    const provider = await serve({ path, uid: pin.samplerUid, native, collect, deadlineMs: WAIT_MS });
+    let stop;
+    const provider = await serve({
+      path, uid: pin.samplerUid, native, collect, deadlineMs: WAIT_MS, onRestart: () => stop(),
+    });
     await new Promise((done) => {
-      const stop = () => provider.close().then(done);
+      let closing;
+      stop = () => { closing ??= provider.close().then(done); };
       process.once('SIGTERM', stop);
       process.once('SIGINT', stop);
     });

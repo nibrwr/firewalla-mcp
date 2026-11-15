@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Capture independently verified Firewalla identity in the credential owner's terminal."""
+import ctypes
 import getpass
 import hashlib
 import ipaddress
@@ -10,6 +11,7 @@ import pwd
 import re
 import stat
 import sys
+import tempfile
 import warnings
 
 
@@ -34,6 +36,30 @@ def digest(value):
     return hashlib.sha256(value.encode("ascii")).hexdigest()
 
 
+def _publish(record, facts):
+    fd, name = tempfile.mkstemp(prefix=".enrollment-", dir=record.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, "w", encoding="ascii") as output:
+            json.dump(facts, output, separators=(",", ":"))
+            output.flush()
+            os.fsync(output.fileno())
+        rename_exclusive = ctypes.CDLL(None, use_errno=True).renamex_np
+        rename_exclusive.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+        rename_exclusive.restype = ctypes.c_int
+        # Darwin RENAME_EXCL publishes the synced file without replacing a pin.
+        if rename_exclusive(os.fsencode(temporary), os.fsencode(record), 0x4) != 0:
+            code = ctypes.get_errno()
+            raise OSError(code, os.strerror(code))
+        directory = os.open(record.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def enroll(sampler, *, hidden=getpass.getpass):
     """Create once. Inputs are local and are never printed, returned or logged."""
     info = STATE.lstat()
@@ -56,11 +82,7 @@ def enroll(sampler, *, hidden=getpass.getpass):
             or re.fullmatch(r"[A-Za-z0-9_-]{1,128}", group, re.ASCII) is None):
         raise ValueError
     facts = {"schema_version": 1, "samplerUid": sampler, "groupDigest": digest(group), "targetDigest": digest(address)}
-    fd = os.open(record, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(fd, "w", encoding="ascii") as output:
-        json.dump(facts, output, separators=(",", ":"))
-        output.flush()
-        os.fsync(output.fileno())
+    _publish(record, facts)
 
 
 def main(argv):

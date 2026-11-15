@@ -65,10 +65,31 @@ those four calls. This excludes live TLS and actual appliance work. The prior
 sampler fixture peaked at 26.9 MiB RSS. Production provider and sampler limits
 still require measurement together.
 
-**BLOCKED, independent review.** Automatic approval review rejected the
-independent Codex CLI review because it could send the private committed diff
-to the Codex service. Local revision review and the native analyzer ran.
-Independent review of the private revision remains an activation gate.
+## Independent review corrections
+
+The user approved transfer of the private PR #2 diff to the existing Codex
+service for independent review. The bundled Codex CLI reviewed
+`36536096028ba6a5507fbdf63aa45adf32b4ca35` against
+`c6125caa9c3dae5f33e4306ed4e2e9eca6d6db8f`. The review found gaps in reboot
+startup, installation order, ping identity, LAN key refresh, durable
+reservations, provider RSS recovery, SDK integrity coverage, sampler jitter
+and in-progress reporting, enrollment persistence, and alarm normalization.
+
+The correction gives the single new daemon a boot executable that recreates
+its socket directory and grants search access to the intended sampler account.
+It drops privileges to the credential owner before running Node. An accepted
+observation now requires the current ping ID and a durable replay check. A
+rejected LAN session gets a fresh login on its next eligible attempt. The
+reviewed SDK hash covers the transitive executable modules, and the provider
+reserves each real read at LAN dispatch.
+
+**PASS, corrected fixture scope.** Nineteen Node tests, 33 Python tests, the
+native boot-directory fixture, Clang analysis and both launchd manifest checks
+passed on the M4. With the final Node flags, three runs peaked at 64.7 MiB
+provider RSS while exercising four fictional encrypted reads per run. The
+31-day sampler simulation peaked at 26.8 MiB RSS, used 220 KiB of committed
+SQLite storage, and enforced 288 reads per day. These measurements omit live
+TLS, process startup under launchd and real appliance work.
 
 **BLOCKED, production.** Administrator authorization was unavailable for
 unattended credential-owner execution. The attended identity inputs and owner

@@ -266,6 +266,41 @@ class SamplerTests(unittest.TestCase):
         self.assertEqual(sleeps, [2])
         self.assertEqual(self.status()["reads_reserved_today"], 2)
 
+    def test_jitter_waits_even_when_early_arrival_is_in_previous_utc_slot(self):
+        self.at = START + 1
+        self.tick()
+        self.at = START + 299
+        waits = []
+
+        def settle(seconds):
+            waits.append(seconds)
+            self.at += seconds
+
+        self.assertEqual(
+            sampler.sample(self.directory, lambda: observed(self.at), clock=lambda: self.at, settle=settle),
+            "observed",
+        )
+        self.assertEqual(waits, [2])
+        self.assertEqual(self.status()["reads_reserved_today"], 2)
+
+    def test_pending_read_over_a_slot_boundary_does_not_count_as_a_miss(self):
+        self.tick(transport.ReadError("timeout"))
+        ctx = multiprocessing.get_context("fork")
+        entered, release = ctx.Event(), ctx.Event()
+        child = ctx.Process(target=hold_reservation, args=(self.directory, START + 599, entered, release))
+        child.start()
+        self.at = START + 601
+        try:
+            self.assertTrue(entered.wait(5))
+            report = self.status()
+            self.assertEqual(report["health"], {"state": "unknown", "reason": "in_progress"})
+            self.assertFalse(report["gap_active"])
+        finally:
+            release.set()
+            child.join(5)
+        self.assertEqual(child.exitcode, 0)
+        self.assertEqual(self.status()["health"]["state"], "observed")
+
     def test_fractional_uptime_decrease_opens_restart_evidence(self):
         self.tick(observed(self.at, 1000.9))
         self.advance()

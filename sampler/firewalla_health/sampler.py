@@ -125,9 +125,10 @@ def sample(directory, read, *, clock=time.time, open_db=None, settle=None, requi
             started = clock()
             with db:
                 skipped = _reserve(db, started)
-            if skipped == "too_soon" and settle is not None:
-                last = db.execute("SELECT started FROM samples ORDER BY slot DESC LIMIT 1").fetchone()[0]
-                remaining = last + INTERVAL - started
+            if skipped in ("too_soon", "already_sampled") and settle is not None:
+                last = db.execute("SELECT slot,started FROM samples ORDER BY slot DESC LIMIT 1").fetchone()
+                eligible = max(last["started"] + INTERVAL, (last["slot"] + 1) * INTERVAL)
+                remaining = eligible - started
                 if 0 < remaining <= MAX_SCHEDULE_JITTER:
                     settle(remaining)
                     started = clock()
@@ -154,13 +155,13 @@ def sample(directory, read, *, clock=time.time, open_db=None, settle=None, requi
         return storage.storage_reason(error)
 
 
-def _health(last, now):
+def _health(last, now, reading):
     if last is None:
         return {"state": "unknown", "reason": "no_samples"}
     if now < last["started"]:
         return {"state": "unknown", "reason": "clock_rollback"}
     if last["state"] == "pending":
-        return {"state": "unknown", "reason": "interrupted"}
+        return {"state": "unknown", "reason": "in_progress" if reading else "interrupted"}
     if last["state"] == "unknown":
         if last["reason"] not in transport.READ_FAILURES | {"interrupted"}:
             raise storage.UnsafeState
@@ -198,10 +199,14 @@ def status(directory, *, now=None):
                 "SELECT count(*) FROM incidents WHERE opened>? AND opened<=?", window,
             ).fetchone()[0]
             gap_persisted = bool(progress["gap_active"]) if progress else False
-            ended_without_attempt = max(0, int(now) // INTERVAL - progress["last_slot"] - 1) if progress else 0
-            gap_due = progress is not None and progress["missed"] + ended_without_attempt >= 2
+            reading = last is not None and last["state"] == "pending" and storage.writer_active(directory)
+            gap_due = False
+            if progress:
+                accounted_slot = last["slot"] if reading else progress["last_slot"]
+                ended_without_attempt = max(0, int(now) // INTERVAL - accounted_slot - 1)
+                gap_due = progress["missed"] + ended_without_attempt >= 2
             result.update({
-                "health": _health(last, now),
+                "health": _health(last, now, reading),
                 "gap_active": gap_persisted or gap_due,
                 "gap_persisted": gap_persisted,
                 "reads_reserved_today": db.execute(

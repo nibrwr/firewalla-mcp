@@ -5,6 +5,7 @@ import { connect } from 'node:net';
 import { join } from 'node:path';
 import test from 'node:test';
 import { serve, HEALTH_REQUEST } from '../../provider/socket.mjs';
+import { RestartRequired } from '../../provider/state.mjs';
 
 const native = createRequire(import.meta.url)(process.env.PROVIDER_TEST_NATIVE);
 const UID = process.getuid();
@@ -102,4 +103,21 @@ test('concurrent requests cannot cause another upstream read', async () => {
     } finally { release(); }
     assert.deepEqual(await first, SAMPLE);
   });
+});
+
+test('a lifetime RSS breach reports the fixed error and drains the listener for restart', async () => {
+  let restarted;
+  const ending = new Promise((resolve) => { restarted = resolve; });
+  const dir = mkdtempSync('/private/tmp/fwh-ipc-');
+  const path = join(dir, 'status.sock');
+  const service = await serve({ path, uid: UID, native, onRestart: restarted,
+    collect: async () => { throw new RestartRequired(); } });
+  try {
+    assert.deepEqual(await exchange(path, HEALTH_REQUEST), { schema_version: 1, error: 'resource_limit' });
+    await ending;
+    assert.equal(await exchange(path, HEALTH_REQUEST), null);
+  } finally {
+    await service.close();
+    rmSync(dir, { recursive: true });
+  }
 });

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { makeReader, identityDigest } from '../../provider/firewalla.mjs';
+import { ProviderError } from '../../provider/state.mjs';
 
 const clock = 1_800_000_000_000;
 const address = '192.168.255.3'; // Fictional private address; intercepted by the test.
@@ -14,9 +15,10 @@ const group = {
 };
 const answer = { code: 200, data: { uptime: 904.5, timestamp: '2027-01-15T07:59:59.000Z' } };
 
-function fixture({ groups = [group], host = address, response = answer } = {}) {
+function fixture({ groups = [group], host = address, response = answer, rejected, delay = 0 } = {}) {
   const calls = [];
   let ticks = 0;
+  let current = clock;
   const reader = makeReader({
     identity: { groupDigest: identityDigest(groupId), targetDigest: identityDigest(address) },
     readCredentials: () => ({ target: host, publicKey: 'fixture-public', privateKey: 'fixture-private' }),
@@ -26,9 +28,10 @@ function fixture({ groups = [group], host = address, response = answer } = {}) {
       aesEncrypt(input, key) { assert.equal(key, 'k'.repeat(32)); return input; },
       aesDecrypt(input) { return input; },
     },
-    ping: (eid) => ({ operation: 'ping', eid }),
+    ping: (eid) => ({ operation: 'ping', eid, message: { obj: { id: 'fixture-ping-' + ticks } } }),
     login: async () => {
       calls.push('cloud');
+      current += delay;
       return { access_token: 'fixture-token', groups };
     },
     box: async (url, body, authorization) => {
@@ -39,12 +42,16 @@ function fixture({ groups = [group], host = address, response = answer } = {}) {
       assert.equal(authorization, 'fixture-token');
       assert.equal(body.rkeyts, 1700000000);
       assert.equal(JSON.parse(body.message).operation, 'ping');
-      const out = ticks++ === 0 ? response
+      const number = ticks++;
+      if (number === 0 && rejected === 'http') throw new ProviderError('source_denied');
+      if (number === 0 && rejected === 'envelope') return { error: 'fixture-key-rejected' };
+      const out = number === 0 ? response
         : { ...response, data: { ...response.data, timestamp: '2027-01-15T07:59:59.500Z' } };
-      return { message: JSON.stringify(out) };
+      return { message: JSON.stringify({ replyid: JSON.parse(body.message).message.obj.id, ...out }) };
     },
     reserveAuth: () => calls.push('reserve-auth'),
-    clock: () => clock,
+    reserveRead: async () => { if (delay) calls.push(['reserve-read', current]); },
+    clock: () => current,
   });
   return { reader, calls };
 }
@@ -82,4 +89,27 @@ test('a decrypted response without a fresh valid ping cannot attest the box', as
     const { reader } = fixture({ response: { code: 200, data } });
     await assert.rejects(reader(signal), { code: 'invalid_response' });
   }
+});
+
+test('first observation must carry the ID of the ping that generated it', async () => {
+  const { reader } = fixture({ response: { ...answer, replyid: 'earlier-ping' } });
+  await assert.rejects(reader(new AbortController().signal), { code: 'identity_unverified' });
+});
+
+test('a rejected LAN session is refreshed at the next call without retrying the first call', async () => {
+  for (const [rejected, code] of [['http', 'source_denied'], ['envelope', 'source_denied']]) {
+    const { reader, calls } = fixture({ rejected });
+    const signal = new AbortController().signal;
+    await assert.rejects(reader(signal), { code });
+    assert.equal(calls.filter((call) => call === 'lan').length, 1);
+    await reader(signal);
+    assert.equal(calls.filter((call) => call === 'cloud').length, 2);
+    assert.equal(calls.filter((call) => call === 'lan').length, 2);
+  }
+});
+
+test('the LAN reservation starts after slow authentication and before dispatch', async () => {
+  const { reader, calls } = fixture({ delay: 4000 });
+  await reader(new AbortController().signal);
+  assert.deepEqual(calls, ['load', 'reserve-auth', 'cloud', ['reserve-read', clock + 4000], 'lan']);
 });
